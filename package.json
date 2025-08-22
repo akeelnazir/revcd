@@ -1,0 +1,29 @@
+{
+  "name": "rcd",
+  "version": "1.0.0",
+  "description": "Review Code daemon",
+  "main": "dist/index.js",
+  "bin": {
+    "rcd": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts"
+  },
+  "dependencies": {
+    "axios": "1.11.0",
+    "commander": "14.0.0"
+  },
+  "devDependencies": {
+    "@types/axios": "0.14.4",
+    "@types/node": "20.10.5",
+    "nodemon": "3.1.10",
+    "ts-node": "10.9.2",
+    "typescript": "5.9.2"
+  },
+  "keywords": [],
+  "author": "Akeel Nazir",
+  "license": "ISC",
+  "type": "commonjs"
+}
