@@ -32,132 +32,6 @@ export class GitService {
   }
 
   /**
-   * Gets the diff content for a specific uncommitted file
-   * @param filePath Path to the file
-   * @param staged Whether to show staged or unstaged changes
-   * @param plainContent Whether to show plain content without diff format
-   * @returns Promise with the diff content or null if error
-   */
-  public static async getUncommittedFileContent(filePath: string, staged: boolean = false, plainContent: boolean = false): Promise<string | null> {
-    try {
-      // Check if we're in a git repository
-      if (!(await this.isGitRepository())) {
-        return null;
-      }
-
-      // Check if the file exists in git
-      const { stdout: fileExists } = await execAsync(`git ls-files --error-unmatch ${filePath}`).catch(() => ({ stdout: '' }));
-      
-      // For untracked files, we can't show a diff
-      if (!fileExists && !staged) {
-        // Check if it's an untracked file
-        const { stdout: untrackedStatus } = await execAsync(`git ls-files --others --exclude-standard ${filePath}`).catch(() => ({ stdout: '' }));
-        
-        if (untrackedStatus.trim()) {
-          // For untracked files, just show the file content
-          const { stdout: fileContent } = await execAsync(`cat ${filePath}`).catch(() => ({ stdout: 'Unable to read file content' }));
-          return `# New file: ${filePath}\n\n${fileContent}`;
-        }
-        
-        return `File not found in repository: ${filePath}`;
-      }
-      
-      // First check if there are any changes to the file
-      const checkDiffCommand = staged ? 
-        `git diff --staged -- ${filePath}` : 
-        `git diff -- ${filePath}`;
-      
-      const { stdout: checkDiffOutput } = await execAsync(checkDiffCommand);
-      
-      // If there are no changes, return early with a consistent message
-      if (!checkDiffOutput.trim()) {
-        return `No changes for ${filePath}`;
-      }
-      
-      // Get the diff for the file
-      let diffCommand;
-      if (plainContent) {
-        // For plain content view, we need to get the current content of the file
-        if (staged) {
-          // For staged changes, get the version in the index
-          diffCommand = `git show :${filePath}`;
-        } else {
-          // For unstaged changes, get the working copy
-          diffCommand = `cat ${filePath}`;
-        }
-      } else {
-        // Standard diff format
-        diffCommand = checkDiffCommand; // Reuse the diff command we already ran
-      }
-      
-      const { stdout: diffOutput } = await execAsync(diffCommand);
-      
-      // Check if there are no changes
-      if (!diffOutput.trim()) {
-        // For plain content, we still want to show "No changes" message
-        if (plainContent) {
-          return `No changes for ${filePath}`;
-        }
-        
-        // If no diff output but file exists, it might be staged for addition
-        if (staged) {
-          const { stdout: stagedStatus } = await execAsync(`git status --porcelain ${filePath}`);
-          if (stagedStatus.startsWith('A ')) {
-            const { stdout: fileContent } = await execAsync(`git show :${filePath}`);
-            return `# New file staged for commit: ${filePath}\n\n${fileContent}`;
-          }
-        }
-        return `No changes for ${filePath}`;
-      }
-      
-      // If plain content was requested but we used diff, we need to extract just the content
-      if (plainContent && diffCommand.startsWith('git diff')) {
-        // Extract only the content lines from the diff output (without + and - prefixes)
-        const lines = diffOutput.trim().split('\n');
-        const contentLines = [];
-        let inContent = false;
-        
-        for (const line of lines) {
-          // Skip diff header lines
-          if (line.startsWith('diff --git') || 
-              line.startsWith('index ') || 
-              line.startsWith('---') || 
-              line.startsWith('+++')) {
-            continue;
-          }
-          
-          // Start of a hunk
-          if (line.startsWith('@@')) {
-            inContent = true;
-            continue;
-          }
-          
-          if (inContent) {
-            // Skip removed lines (starting with -)
-            if (line.startsWith('-')) {
-              continue;
-            }
-            
-            // Add content lines, removing the + prefix if present
-            if (line.startsWith('+')) {
-              contentLines.push(line.substring(1));
-            } else if (!line.startsWith('\\')) { // Skip 'No newline at end of file' markers
-              contentLines.push(line);
-            }
-          }
-        }
-        
-        return contentLines.join('\n');
-      }
-      
-      return diffOutput.trim();
-    } catch (error) {
-      console.error(`Error getting uncommitted changes for ${filePath}:`, error);
-      return null;
-    }
-  }
-
-  /**
    * Gets all uncommitted changes in the repository
    * @returns Promise with the uncommitted changes or null if error
    */
@@ -442,5 +316,223 @@ export class GitService {
     }
     
     return null;
+  }
+
+  /**
+   * Gets the hunks (changed parts) of unstaged/uncommitted files
+   * @param filePath Optional path to a specific file to get hunks for. If not provided, gets hunks for all unstaged files.
+   * @returns Promise with a map of file paths to their hunks or null if error
+   */
+  public static async getUncommittedHunks(filePath?: string): Promise<Map<string, string[]> | null> {
+    try {
+      // Check if we're in a git repository
+      if (!(await this.isGitRepository())) {
+        return null;
+      }
+
+      const hunksMap = new Map<string, string[]>();
+      
+      // Command to get unstaged changes with patch information
+      const diffCommand = filePath 
+        ? `git diff -- "${filePath}"` 
+        : 'git diff';
+      
+      const { stdout: diffOutput } = await execAsync(diffCommand);
+      
+      if (!diffOutput.trim()) {
+        return hunksMap; // No changes
+      }
+
+      // Process the diff output to extract hunks by file
+      let currentFile: string | null = null;
+      let currentHunk: string[] = [];
+      
+      const lines = diffOutput.split('\n');
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // Check for file header (diff --git a/file b/file)
+        if (line.startsWith('diff --git')) {
+          // Save previous file's hunks if any
+          if (currentFile && currentHunk.length > 0) {
+            hunksMap.set(currentFile, [...(hunksMap.get(currentFile) || []), currentHunk.join('\n')]);
+            currentHunk = [];
+          }
+          
+          // Extract new filename from the line
+          // Format: diff --git a/path/to/file b/path/to/file
+          const match = line.match(/diff --git a\/(.+) b\/.+/);
+          currentFile = match ? match[1] : null;
+        } 
+        // Check for hunk header (@@ -start,lines +start,lines @@)
+        else if (line.startsWith('@@') && line.includes('@@')) {
+          // Save previous hunk if any
+          if (currentHunk.length > 0 && currentFile) {
+            hunksMap.set(currentFile, [...(hunksMap.get(currentFile) || []), currentHunk.join('\n')]);
+            currentHunk = [];
+          }
+          
+          // Start a new hunk
+          currentHunk.push(line);
+        } 
+        // Add line to current hunk
+        else if (currentFile && (line.startsWith('+') || line.startsWith('-') || line.startsWith(' '))) {
+          currentHunk.push(line);
+        }
+      }
+      
+      // Save the last hunk if any
+      if (currentFile && currentHunk.length > 0) {
+        hunksMap.set(currentFile, [...(hunksMap.get(currentFile) || []), currentHunk.join('\n')]);
+      }
+      
+      return hunksMap;
+    } catch (error) {
+      console.error('Error getting uncommitted hunks:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Extracts only the added lines from a hunk
+   * @param hunk The hunk text containing diff information
+   * @returns String containing only the added lines (without the '+' prefix)
+   */
+  private static extractAddedLines(hunk: string): string {
+    const lines = hunk.split('\n');
+    const addedLines = lines
+      .filter(line => line.startsWith('+') && !line.startsWith('+++')); // Filter out the +++ line which is part of the diff header
+    
+    // Remove the '+' prefix from each line
+    return addedLines
+      .map(line => line.substring(1))
+      .join('\n');
+  }
+
+  /**
+   * Gets the hunks (changed parts) of staged files
+   * @param filePath Optional path to a specific file to get hunks for. If not provided, gets hunks for all staged files.
+   * @returns Promise with a map of file paths to their hunks or null if error
+   */
+  public static async getStagedHunks(filePath?: string): Promise<Map<string, string[]> | null> {
+    try {
+      // Check if we're in a git repository
+      if (!(await this.isGitRepository())) {
+        return null;
+      }
+
+      const hunksMap = new Map<string, string[]>();
+      
+      // Command to get staged changes with patch information
+      const diffCommand = filePath 
+        ? `git diff --cached -- "${filePath}"` 
+        : 'git diff --cached';
+      
+      const { stdout: diffOutput } = await execAsync(diffCommand);
+      
+      if (!diffOutput.trim()) {
+        return hunksMap; // No changes
+      }
+
+      // Process the diff output to extract hunks by file
+      let currentFile: string | null = null;
+      let currentHunk: string[] = [];
+      
+      const lines = diffOutput.split('\n');
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // Check for file header (diff --git a/file b/file)
+        if (line.startsWith('diff --git')) {
+          // Save previous file's hunks if any
+          if (currentFile && currentHunk.length > 0) {
+            hunksMap.set(currentFile, [...(hunksMap.get(currentFile) || []), currentHunk.join('\n')]);
+            currentHunk = [];
+          }
+          
+          // Extract new filename from the line
+          // Format: diff --git a/path/to/file b/path/to/file
+          const match = line.match(/diff --git a\/(.+) b\/.+/);
+          currentFile = match ? match[1] : null;
+        } 
+        // Check for hunk header (@@ -start,lines +start,lines @@)
+        else if (line.startsWith('@@') && line.includes('@@')) {
+          // Save previous hunk if any
+          if (currentHunk.length > 0 && currentFile) {
+            hunksMap.set(currentFile, [...(hunksMap.get(currentFile) || []), currentHunk.join('\n')]);
+            currentHunk = [];
+          }
+          
+          // Start a new hunk
+          currentHunk.push(line);
+        } 
+        // Add line to current hunk
+        else if (currentFile && (line.startsWith('+') || line.startsWith('-') || line.startsWith(' '))) {
+          currentHunk.push(line);
+        }
+      }
+      
+      // Save the last hunk if any
+      if (currentFile && currentHunk.length > 0) {
+        hunksMap.set(currentFile, [...(hunksMap.get(currentFile) || []), currentHunk.join('\n')]);
+      }
+      
+      return hunksMap;
+    } catch (error) {
+      console.error('Error getting staged hunks:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Gets only the added lines from unstaged/uncommitted files
+   * @param filePath Optional path to a specific file to get added lines for
+   * @param staged Whether to get added lines from staged changes instead of unstaged
+   * @returns Promise with a map of file paths to their added lines or null if error
+   */
+  public static async getAddedLines(filePath?: string, staged: boolean = false): Promise<Map<string, string> | null> {
+    try {
+      // Get the hunks first
+      const hunksMap = staged
+        ? await this.getStagedHunks(filePath)
+        : await this.getUncommittedHunks(filePath);
+      
+      if (!hunksMap) {
+        return null;
+      }
+      
+      const addedLinesMap = new Map<string, string>();
+      
+      // Process each file's hunks to extract only added lines
+      for (const [filePath, hunks] of hunksMap.entries()) {
+        let fileAddedLines = '';
+        
+        // Process each hunk to extract added lines
+        for (const hunk of hunks) {
+          const lines = hunk.split('\n');
+          const addedLines = lines
+            .filter(line => line.startsWith('+') && !line.startsWith('+++')) // Filter out the +++ line which is part of the diff header
+            .map(line => line.substring(1)) // Remove the '+' prefix
+            .join('\n');
+          
+          if (addedLines) {
+            if (fileAddedLines) fileAddedLines += '\n';
+            fileAddedLines += addedLines;
+          }
+        }
+        
+        // Only add to the map if there are added lines
+        if (fileAddedLines) {
+          addedLinesMap.set(filePath, fileAddedLines);
+        }
+      }
+      
+      return addedLinesMap;
+    } catch (error) {
+      console.error('Error getting added lines:', error);
+      return null;
+    }
   }
 }

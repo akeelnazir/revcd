@@ -33,14 +33,13 @@ program
     }
   });
 
-// Add diff command to show the contents of an uncommitted file change
+// Add hunks command to show changed parts of unstaged/uncommitted files
 program
-  .command('diff')
-  .description('Show the diff content for a specific uncommitted file')
-  .argument('<file>', 'file to show diff for')
-  .option('-s, --staged', 'show staged changes instead of unstaged')
-  .option('-p, --plain', 'show plain content without diff format')
-  .action(async (file, options) => {
+  .command('hunks')
+  .description('Show only the changed parts (hunks) of unstaged/uncommitted files')
+  .option('-f, --file <file>', 'show hunks for a specific file only')
+  .option('-s, --staged', 'show hunks for staged changes instead of unstaged')
+  .action(async (options) => {
     const isGitRepo = await GitService.isGitRepository();
     if (!isGitRepo) {
       console.error('Not a git repository');
@@ -48,17 +47,34 @@ program
     }
     
     try {
-      // Use the GitService to get the file content with proper handling of all cases
-      const diffContent = await GitService.getUncommittedFileContent(file, options.staged, options.plain);
+      // Get the hunks based on whether we want staged or unstaged changes
+      const hunksMap = options.staged
+        ? await GitService.getStagedHunks(options.file)
+        : await GitService.getUncommittedHunks(options.file);
       
-      if (diffContent) {
-        console.log(diffContent);
-      } else {
-        console.error(`Error retrieving diff for ${file}`);
+      if (!hunksMap) {
+        console.error('Error retrieving hunks');
         process.exit(1);
       }
+      
+      if (hunksMap.size === 0) {
+        console.log(options.staged ? 'No staged changes found' : 'No unstaged changes found');
+        process.exit(0);
+      }
+      
+      console.log(`Found changes in ${hunksMap.size} file(s):\n`);
+      
+      // Display the hunks for each file
+      for (const [filePath, hunks] of hunksMap.entries()) {
+        console.log(`\n=== ${filePath} ===`);
+        hunks.forEach((hunk, index) => {
+          console.log(`\n--- Hunk ${index + 1} ---`);
+          console.log(hunk);
+        });
+        console.log('\n' + '-'.repeat(80));
+      }
     } catch (error) {
-      console.error(`Error checking changes for ${file}:`, error);
+      console.error('Error:', error);
       process.exit(1);
     }
   });
@@ -70,6 +86,8 @@ program
   .option('-m, --model <model>', 'specify the Ollama model to use for review')
   .option('-f, --file <file>', 'review only a specific file')
   .option('-a, --all', 'review all files, not just code files')
+  .option('-h, --hunks-only', 'review only the added hunks/lines instead of entire files')
+  .option('-s, --staged', 'review staged changes instead of unstaged changes (works with --hunks-only)')
   .action(async (options) => {
     const isGitRepo = await GitService.isGitRepository();
     if (!isGitRepo) {
@@ -79,28 +97,98 @@ program
 
     // Show which file extensions will be reviewed
     if (!options.all && !options.file) {
-      console.log(`Fetching uncommitted code files (extensions: ${CODE_REVIEW_CONFIG.FILE_EXTENSIONS.join(', ')})...`);
+      console.log(`Fetching ${options.staged ? 'staged' : 'uncommitted'} code files (extensions: ${CODE_REVIEW_CONFIG.FILE_EXTENSIONS.join(', ')})...`);
     } else {
-      console.log('Fetching uncommitted files...');
+      console.log(`Fetching ${options.staged ? 'staged' : 'uncommitted'} files...`);
     }
     
     if (options.file) {
-      // Review a specific file (committed or uncommitted)
-      const fileContent = await GitService.getFileContent(options.file);
-      if (!fileContent) {
-        console.error(`File ${options.file} not found in the latest commit or on disk`);
+      // Review a specific file
+      if (options.hunksOnly) {
+        // Get only the added lines from the specified file
+        const addedLinesMap = await GitService.getAddedLines(options.file, options.staged);
+        
+        if (!addedLinesMap || addedLinesMap.size === 0) {
+          console.log(`No added lines found in ${options.file}`);
+          process.exit(0);
+        }
+        
+        const addedLines = addedLinesMap.get(options.file);
+        if (!addedLines) {
+          console.log(`No added lines found in ${options.file}`);
+          process.exit(0);
+        }
+        
+        console.log(`Reviewing added lines in ${options.file}...`);
+        
+        // Display the formatted code before the review
+        console.log(`\n=== Added Code in ${options.file} ===`);
+        console.log('```');
+        console.log(addedLines);
+        console.log('```\n');
+        
+        const review = await ollamaService.reviewCode(addedLines, options.file, options.model);
+        
+        if (review) {
+          console.log(`=== Code Review for added lines in ${options.file} ===`);
+          console.log(review);
+        } else {
+          console.error('Failed to get code review from Ollama service');
+          process.exit(1);
+        }
+      } else {
+        // Review the entire file (committed or uncommitted)
+        const fileContent = await GitService.getFileContent(options.file);
+        if (!fileContent) {
+          console.error(`File ${options.file} not found in the latest commit or on disk`);
+          process.exit(1);
+        }
+        
+        console.log(`Reviewing ${options.file}...`);
+        const review = await ollamaService.reviewCode(fileContent, options.file, options.model);
+        
+        if (review) {
+          console.log(`\n=== Code Review for ${options.file} ===`);
+          console.log(review);
+        } else {
+          console.error('Failed to get code review from Ollama service');
+          process.exit(1);
+        }
+      }
+    } else if (options.hunksOnly) {
+      // Review only added lines from all files
+      const addedLinesMap = await GitService.getAddedLines(undefined, options.staged);
+      
+      if (!addedLinesMap) {
+        console.error('Failed to get added lines');
         process.exit(1);
       }
       
-      console.log(`Reviewing ${options.file}...`);
-      const review = await ollamaService.reviewCode(fileContent, options.file, options.model);
+      if (addedLinesMap.size === 0) {
+        console.log(`No added lines found in ${options.staged ? 'staged' : 'unstaged'} changes`);
+        process.exit(0);
+      }
       
-      if (review) {
-        console.log(`\n=== Code Review for ${options.file} ===`);
-        console.log(review);
-      } else {
-        console.error('Failed to get code review from Ollama service');
-        process.exit(1);
+      console.log(`Found added lines in ${addedLinesMap.size} files`);
+      
+      for (const [filePath, addedLines] of addedLinesMap.entries()) {
+        console.log(`\nReviewing added lines in ${filePath}...`);
+        
+        // Display the formatted code before the review
+        console.log(`\n=== Added Code in ${filePath} ===`);
+        console.log('```');
+        console.log(addedLines);
+        console.log('```\n');
+        
+        const review = await ollamaService.reviewCode(addedLines, filePath, options.model);
+        
+        if (review) {
+          console.log(`=== Code Review for added lines in ${filePath} ===`);
+          console.log(review);
+          console.log('\n' + '-'.repeat(80));
+        } else {
+          console.error(`Failed to get code review for ${filePath}`);
+        }
       }
     } else {
       // Review all uncommitted files
