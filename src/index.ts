@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { GitService, ollamaService } from './services';
+import { GitService, ollamaService, FileService } from './services';
 import { CODE_REVIEW_CONFIG } from './config/codeReview.config';
 
 const program = new Command();
@@ -95,11 +95,23 @@ program
       process.exit(1);
     }
 
+    // String to collect all review output for saving to file
+    let reviewOutput = '';
+    
+    // Helper function to append to review output
+    const appendToReviewOutput = (text: string) => {
+      reviewOutput += text + '\n';
+    };
+
     // Show which file extensions will be reviewed
     if (!options.all && !options.file) {
-      console.log(`Fetching ${options.staged ? 'staged' : 'uncommitted'} code files (extensions: ${CODE_REVIEW_CONFIG.FILE_EXTENSIONS.join(', ')})...`);
+      const message = `Fetching ${options.staged ? 'staged' : 'uncommitted'} code files (extensions: ${CODE_REVIEW_CONFIG.FILE_EXTENSIONS.join(', ')})`;
+      console.log(message + '...');
+      appendToReviewOutput(message);
     } else {
-      console.log(`Fetching ${options.staged ? 'staged' : 'uncommitted'} files...`);
+      const message = `Fetching ${options.staged ? 'staged' : 'uncommitted'} files`;
+      console.log(message + '...');
+      appendToReviewOutput(message);
     }
     
     if (options.file) {
@@ -109,49 +121,86 @@ program
         const addedLinesMap = await GitService.getAddedLines(options.file, options.staged);
         
         if (!addedLinesMap || addedLinesMap.size === 0) {
-          console.log(`No added lines found in ${options.file}`);
+          const message = `No added lines found in ${options.file}`;
+          console.log(message);
+          appendToReviewOutput(message);
+          await FileService.saveReviewOutput(reviewOutput);
           process.exit(0);
         }
         
         const addedLines = addedLinesMap.get(options.file);
         if (!addedLines) {
-          console.log(`No added lines found in ${options.file}`);
+          const message = `No added lines found in ${options.file}`;
+          console.log(message);
+          appendToReviewOutput(message);
+          await FileService.saveReviewOutput(reviewOutput);
           process.exit(0);
         }
         
-        console.log(`Reviewing added lines in ${options.file}...`);
+        const reviewingMessage = `Reviewing added lines in ${options.file}...`;
+        console.log(reviewingMessage);
+        appendToReviewOutput(reviewingMessage);
         
         // Display the formatted code before the review
-        console.log(`\n=== Added Code in ${options.file} ===`);
+        const codeHeader = `\n=== Added Code in ${options.file} ===`;
+        console.log(codeHeader);
+        appendToReviewOutput(codeHeader);
         console.log('```');
+        appendToReviewOutput('```');
         console.log(addedLines);
+        appendToReviewOutput(addedLines);
         console.log('```\n');
+        appendToReviewOutput('```\n');
         
         const review = await ollamaService.reviewCode(addedLines, options.file, options.model);
         
         if (review) {
-          console.log(`=== Code Review for added lines in ${options.file} ===`);
+          const reviewHeader = `=== Code Review for added lines in ${options.file} ===`;
+          console.log(reviewHeader);
+          appendToReviewOutput(reviewHeader);
           console.log(review);
+          appendToReviewOutput(review);
+          
+          // Save the review output to REVIEW.MD
+          await FileService.saveReviewOutput(reviewOutput);
         } else {
-          console.error('Failed to get code review from Ollama service');
+          const errorMessage = 'Failed to get code review from Ollama service';
+          console.error(errorMessage);
+          appendToReviewOutput(errorMessage);
+          await FileService.saveReviewOutput(reviewOutput);
           process.exit(1);
         }
       } else {
         // Review the entire file (committed or uncommitted)
         const fileContent = await GitService.getFileContent(options.file);
         if (!fileContent) {
-          console.error(`File ${options.file} not found in the latest commit or on disk`);
+          const errorMessage = `File ${options.file} not found in the latest commit or on disk`;
+          console.error(errorMessage);
+          appendToReviewOutput(errorMessage);
+          await FileService.saveReviewOutput(reviewOutput);
           process.exit(1);
         }
         
-        console.log(`Reviewing ${options.file}...`);
+        const reviewingMessage = `Reviewing ${options.file}...`;
+        console.log(reviewingMessage);
+        appendToReviewOutput(reviewingMessage);
+        
         const review = await ollamaService.reviewCode(fileContent, options.file, options.model);
         
         if (review) {
-          console.log(`\n=== Code Review for ${options.file} ===`);
+          const reviewHeader = `\n=== Code Review for ${options.file} ===`;
+          console.log(reviewHeader);
+          appendToReviewOutput(reviewHeader);
           console.log(review);
+          appendToReviewOutput(review);
+          
+          // Save the review output to REVIEW.MD
+          await FileService.saveReviewOutput(reviewOutput);
         } else {
-          console.error('Failed to get code review from Ollama service');
+          const errorMessage = 'Failed to get code review from Ollama service';
+          console.error(errorMessage);
+          appendToReviewOutput(errorMessage);
+          await FileService.saveReviewOutput(reviewOutput);
           process.exit(1);
         }
       }
@@ -160,64 +209,110 @@ program
       const addedLinesMap = await GitService.getAddedLines(undefined, options.staged);
       
       if (!addedLinesMap) {
-        console.error('Failed to get added lines');
+        const errorMessage = 'Failed to get added lines';
+        console.error(errorMessage);
+        appendToReviewOutput(errorMessage);
+        await FileService.saveReviewOutput(reviewOutput);
         process.exit(1);
       }
       
       if (addedLinesMap.size === 0) {
-        console.log(`No added lines found in ${options.staged ? 'staged' : 'unstaged'} changes`);
+        const message = `No added lines found in ${options.staged ? 'staged' : 'unstaged'} changes`;
+        console.log(message);
+        appendToReviewOutput(message);
+        await FileService.saveReviewOutput(reviewOutput);
         process.exit(0);
       }
       
-      console.log(`Found added lines in ${addedLinesMap.size} files`);
+      const foundMessage = `Found added lines in ${addedLinesMap.size} files`;
+      console.log(foundMessage);
+      appendToReviewOutput(foundMessage);
       
       for (const [filePath, addedLines] of addedLinesMap.entries()) {
-        console.log(`\nReviewing added lines in ${filePath}...`);
+        const reviewingMessage = `\nReviewing added lines in ${filePath}...`;
+        console.log(reviewingMessage);
+        appendToReviewOutput(reviewingMessage);
         
         // Display the formatted code before the review
-        console.log(`\n=== Added Code in ${filePath} ===`);
+        const codeHeader = `\n=== Added Code in ${filePath} ===`;
+        console.log(codeHeader);
+        appendToReviewOutput(codeHeader);
         console.log('```');
+        appendToReviewOutput('```');
         console.log(addedLines);
+        appendToReviewOutput(addedLines);
         console.log('```\n');
+        appendToReviewOutput('```\n');
         
         const review = await ollamaService.reviewCode(addedLines, filePath, options.model);
         
         if (review) {
-          console.log(`=== Code Review for added lines in ${filePath} ===`);
+          const reviewHeader = `=== Code Review for added lines in ${filePath} ===`;
+          console.log(reviewHeader);
+          appendToReviewOutput(reviewHeader);
           console.log(review);
-          console.log('\n' + '-'.repeat(80));
+          appendToReviewOutput(review);
+          const separator = '\n' + '-'.repeat(80);
+          console.log(separator);
+          appendToReviewOutput(separator);
         } else {
-          console.error(`Failed to get code review for ${filePath}`);
+          const errorMessage = `Failed to get code review for ${filePath}`;
+          console.error(errorMessage);
+          appendToReviewOutput(errorMessage);
         }
       }
+      
+      // Save the review output to REVIEW.MD
+      await FileService.saveReviewOutput(reviewOutput);
     } else {
       // Review all uncommitted files
       const uncommittedFiles = await GitService.getUncommittedFilesContent(!options.all);
       
       if (!uncommittedFiles) {
-        console.error('Failed to get uncommitted files content');
+        const errorMessage = 'Failed to get uncommitted files content';
+        console.error(errorMessage);
+        appendToReviewOutput(errorMessage);
+        await FileService.saveReviewOutput(reviewOutput);
         process.exit(1);
       }
       
       if (uncommittedFiles.size === 0) {
-        console.log('No uncommitted changes found');
+        const message = 'No uncommitted changes found';
+        console.log(message);
+        appendToReviewOutput(message);
+        await FileService.saveReviewOutput(reviewOutput);
         process.exit(0);
       }
       
-      console.log(`Found ${uncommittedFiles.size} uncommitted files`);
+      const foundMessage = `Found ${uncommittedFiles.size} uncommitted files`;
+      console.log(foundMessage);
+      appendToReviewOutput(foundMessage);
       
       for (const [filePath, content] of uncommittedFiles.entries()) {
-        console.log(`\nReviewing ${filePath}...`);
+        const reviewingMessage = `\nReviewing ${filePath}...`;
+        console.log(reviewingMessage);
+        appendToReviewOutput(reviewingMessage);
+        
         const review = await ollamaService.reviewCode(content, filePath, options.model);
         
         if (review) {
-          console.log(`\n=== Code Review for ${filePath} ===`);
+          const reviewHeader = `\n=== Code Review for ${filePath} ===`;
+          console.log(reviewHeader);
+          appendToReviewOutput(reviewHeader);
           console.log(review);
-          console.log('\n' + '-'.repeat(80));
+          appendToReviewOutput(review);
+          const separator = '\n' + '-'.repeat(80);
+          console.log(separator);
+          appendToReviewOutput(separator);
         } else {
-          console.error(`Failed to get code review for ${filePath}`);
+          const errorMessage = `Failed to get code review for ${filePath}`;
+          console.error(errorMessage);
+          appendToReviewOutput(errorMessage);
         }
       }
+      
+      // Save the review output to REVIEW.MD
+      await FileService.saveReviewOutput(reviewOutput);
     }
   });
 
