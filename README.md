@@ -25,46 +25,14 @@ Once installed, you can use the `rcd` command from anywhere in your terminal.
   rcd --help
   ```
 
-- **Hello**: Say hello
+- **Review**: Review a file
   ```bash
-  rcd hello
-  rcd hello --name YourName
-  ```
-
-- **List Files**: List files in a directory
-  ```bash
-  rcd ls
-  rcd ls /path/to/directory
-  ```
-
-- **View File Contents**: Show file contents
-  ```bash
-  rcd cat filename.txt
-  ```
-
-- **System Information**: Show system information
-  ```bash
-  rcd sysinfo
-  ```
-
-- **Directory Information**: Show current directory information
-  ```bash
-  rcd pwd
-  ```
-
-- **Git Changes**: Show changes in the latest git commit
-  ```bash
-  rcd changes
+  rcd review -f <file>
   ```
 
 - **Git Status**: Show all uncommitted changes in the repository
   ```bash
   rcd status
-  ```
-
-- **Git Staged Diff**: Show the full diff output for staged changes
-  ```bash
-  rcd staged-diff
   ```
 
 - **Git File Diff**: Show the diff content for a specific uncommitted file
@@ -121,32 +89,9 @@ yarn dev
 
 - `src/index.ts`: Main entry point for the CLI
 - `src/services/`: Service modules
-  - `fileService.ts`: File operations
-  - `systemService.ts`: System information
+  - `ollama.ts`: Ollama operations
   - `gitService.ts`: Git operations
 
-## Using as a Git Hook
-
-You can use the `changes` command as a git hook to automatically show the changes in the latest commit after each commit. Here's how to set it up:
-
-### Post-Commit Hook
-
-1. Create a file named `post-commit` in your repository's `.git/hooks/` directory:
-
-```bash
-#!/bin/sh
-
-# Run the rcd changes command to show the latest commit changes
-rcd changes
-```
-
-2. Make the hook executable:
-
-```bash
-chmod +x .git/hooks/post-commit
-```
-
-Now, every time you make a commit, the `rcd changes` command will run automatically and show you the changes in that commit.
 
 ## License
 

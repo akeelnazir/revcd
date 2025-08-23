@@ -46,11 +46,18 @@ program
       process.exit(1);
     }
     
-    const diffContent = await GitService.getUncommittedFileContent(file, options.staged, options.plain);
-    if (diffContent) {
-      console.log(diffContent);
-    } else {
-      console.error(`Error retrieving diff for ${file}`);
+    try {
+      // Use the GitService to get the file content with proper handling of all cases
+      const diffContent = await GitService.getUncommittedFileContent(file, options.staged, options.plain);
+      
+      if (diffContent) {
+        console.log(diffContent);
+      } else {
+        console.error(`Error retrieving diff for ${file}`);
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error(`Error checking changes for ${file}:`, error);
       process.exit(1);
     }
   });

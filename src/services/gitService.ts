@@ -8,6 +8,15 @@ const execAsync = promisify(exec);
  */
 export class GitService {
   /**
+   * Execute a git command and return the result
+   * @param command Git command to execute
+   * @returns Promise with the command output
+   */
+  public static async execGitCommand(command: string): Promise<{stdout: string, stderr: string}> {
+    return execAsync(command);
+  }
+
+  /**
    * Checks if the current directory is a git repository
    * @returns Promise<boolean> indicating if current directory is a git repository
    */
@@ -51,6 +60,18 @@ export class GitService {
         return `File not found in repository: ${filePath}`;
       }
       
+      // First check if there are any changes to the file
+      const checkDiffCommand = staged ? 
+        `git diff --staged -- ${filePath}` : 
+        `git diff -- ${filePath}`;
+      
+      const { stdout: checkDiffOutput } = await execAsync(checkDiffCommand);
+      
+      // If there are no changes, return early with a consistent message
+      if (!checkDiffOutput.trim()) {
+        return `No changes for ${filePath}`;
+      }
+      
       // Get the diff for the file
       let diffCommand;
       if (plainContent) {
@@ -64,14 +85,18 @@ export class GitService {
         }
       } else {
         // Standard diff format
-        diffCommand = staged ? 
-          `git diff --staged -- ${filePath}` : 
-          `git diff -- ${filePath}`;
+        diffCommand = checkDiffCommand; // Reuse the diff command we already ran
       }
       
       const { stdout: diffOutput } = await execAsync(diffCommand);
       
-      if (!diffOutput.trim() && !plainContent) {
+      // Check if there are no changes
+      if (!diffOutput.trim()) {
+        // For plain content, we still want to show "No changes" message
+        if (plainContent) {
+          return `No changes for ${filePath}`;
+        }
+        
         // If no diff output but file exists, it might be staged for addition
         if (staged) {
           const { stdout: stagedStatus } = await execAsync(`git status --porcelain ${filePath}`);
