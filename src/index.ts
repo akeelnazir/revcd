@@ -2,6 +2,7 @@
 
 import { Command } from 'commander';
 import { GitService, ollamaService } from './services';
+import { CODE_REVIEW_CONFIG } from './config/codeReview.config';
 
 const program = new Command();
 
@@ -62,12 +63,13 @@ program
     }
   });
 
-// Add review command to send changed code files to Ollama for review
+// Add review command to send uncommitted code files to Ollama for review
 program
   .command('review')
-  .description('Send changed code files from the latest commit to Ollama for code review')
+  .description('Send uncommitted code files to Ollama for code review')
   .option('-m, --model <model>', 'specify the Ollama model to use for review')
-  .option('-f, --file <file>', 'review only a specific file from the latest commit')
+  .option('-f, --file <file>', 'review only a specific file')
+  .option('-a, --all', 'review all files, not just code files')
   .action(async (options) => {
     const isGitRepo = await GitService.isGitRepository();
     if (!isGitRepo) {
@@ -75,7 +77,12 @@ program
       process.exit(1);
     }
 
-    console.log('Fetching changed files from the latest commit...');
+    // Show which file extensions will be reviewed
+    if (!options.all && !options.file) {
+      console.log(`Fetching uncommitted code files (extensions: ${CODE_REVIEW_CONFIG.FILE_EXTENSIONS.join(', ')})...`);
+    } else {
+      console.log('Fetching uncommitted files...');
+    }
     
     if (options.file) {
       // Review a specific file (committed or uncommitted)
@@ -96,22 +103,22 @@ program
         process.exit(1);
       }
     } else {
-      // Review all changed files
-      const changedFiles = await GitService.getChangedFilesContent();
+      // Review all uncommitted files
+      const uncommittedFiles = await GitService.getUncommittedFilesContent(!options.all);
       
-      if (!changedFiles) {
-        console.error('Failed to get changed files content');
+      if (!uncommittedFiles) {
+        console.error('Failed to get uncommitted files content');
         process.exit(1);
       }
       
-      if (changedFiles.size === 0) {
-        console.log('No changes found in the latest commit');
+      if (uncommittedFiles.size === 0) {
+        console.log('No uncommitted changes found');
         process.exit(0);
       }
       
-      console.log(`Found ${changedFiles.size} changed files in the latest commit`);
+      console.log(`Found ${uncommittedFiles.size} uncommitted files`);
       
-      for (const [filePath, content] of changedFiles.entries()) {
+      for (const [filePath, content] of uncommittedFiles.entries()) {
         console.log(`\nReviewing ${filePath}...`);
         const review = await ollamaService.reviewCode(content, filePath, options.model);
         

@@ -1,5 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { CODE_REVIEW_CONFIG } from '../config';
+import path from 'path';
 
 const execAsync = promisify(exec);
 
@@ -223,38 +225,58 @@ export class GitService {
     }
   }
 
+  // Cache for file contents to avoid repeated git operations on the same file
+  private static fileContentCache = new Map<string, string>();
+
   /**
    * Gets the content of a file from the latest commit or from disk if not committed
    * @param filePath Path to the file
+   * @param useCache Whether to use the cache (default: true)
    * @returns Promise with the file content or null if error
    */
-  public static async getFileFromLatestCommit(filePath: string): Promise<string | null> {
+  public static async getFileFromLatestCommit(filePath: string, useCache: boolean = true): Promise<string | null> {
     try {
       // Check if we're in a git repository
       if (!(await this.isGitRepository())) {
         return null;
       }
+
+      // Check cache first if enabled
+      const cacheKey = `HEAD:${filePath}`;
+      if (useCache && this.fileContentCache.has(cacheKey)) {
+        return this.fileContentCache.get(cacheKey) || null;
+      }
       
       try {
         // Try to get the content of the file from the latest commit
+        // Using git show HEAD:<filePath> directly is more efficient
         const { stdout: fileContent } = await execAsync(`git show HEAD:${filePath}`);
+        
+        // Cache the result for future use
+        if (useCache) {
+          this.fileContentCache.set(cacheKey, fileContent);
+        }
+        
         return fileContent;
       } catch (commitError) {
         // If the file doesn't exist in HEAD, check if it exists on disk
         try {
+          // More efficient check for file existence
           const { stdout: fileExists } = await execAsync(`[ -f "${filePath}" ] && echo "exists" || echo ""`);
           
           if (fileExists.trim() === 'exists') {
             // File exists on disk but not in HEAD, read it directly
             const { stdout: diskContent } = await execAsync(`cat "${filePath}"`);
-            console.log(`File ${filePath} not found in the latest commit, using current version from disk`);
+            
+            // Don't cache disk content with the HEAD key since it's not from HEAD
+            
             return diskContent;
           } else {
-            console.error(`File ${filePath} not found in the latest commit or on disk`);
+            // File doesn't exist in HEAD or on disk
             return null;
           }
         } catch (diskError) {
-          console.error(`Error checking file on disk for ${filePath}:`, diskError);
+          // Error checking file on disk
           return null;
         }
       }
@@ -265,24 +287,125 @@ export class GitService {
   }
 
   /**
-   * Gets all changed files with their content from the latest commit
+   * Checks if a file should be included in code review based on its extension
+   * @param filePath Path to the file
+   * @returns boolean indicating if the file should be included
+   */
+  private static shouldIncludeFile(filePath: string): boolean {
+    // Get the file extension without the dot
+    const extension = path.extname(filePath).slice(1).toLowerCase();
+    
+    // If no extension, exclude the file
+    if (!extension) return false;
+    
+    // Check if the extension is in the allowed list
+    return CODE_REVIEW_CONFIG.FILE_EXTENSIONS.includes(extension);
+  }
+
+  // Cache for uncommitted file contents to avoid repeated file reads
+  private static uncommittedFileCache = new Map<string, string>();
+
+  /**
+   * Gets all uncommitted files with their content
+   * @param filterByExtension Whether to filter files by extension (default: true)
+   * @param useCache Whether to use the cache (default: true)
    * @returns Promise with map of file paths to their content or null if error
    */
-  public static async getChangedFilesContent(): Promise<Map<string, string> | null> {
+  public static async getUncommittedFilesContent(filterByExtension: boolean = true, useCache: boolean = true): Promise<Map<string, string> | null> {
     try {
-      const changedFiles = await this.getLatestCommitChanges();
-      
-      if (!changedFiles) {
-        return new Map();
+      // Check if we're in a git repository
+      if (!(await this.isGitRepository())) {
+        return null;
       }
       
       const fileContents = new Map<string, string>();
       
-      // Process files from the latest commit
-      for (const filePath of changedFiles) {
-        const content = await this.getFileFromLatestCommit(filePath);
+      // Use more efficient git commands to get modified files
+      // Get modified tracked files (both staged and unstaged)
+      const { stdout: modifiedFiles } = await execAsync('git ls-files --modified');
+      
+      // Get staged files (including new files staged for commit)
+      const { stdout: stagedFiles } = await execAsync('git diff --name-only --cached');
+      
+      // Get untracked files
+      const { stdout: untrackedFiles } = await execAsync('git ls-files --others --exclude-standard');
+      
+      // Process all file paths using a Set for efficient tracking of unique files
+      const allFiles = new Set<string>(
+        [...modifiedFiles.trim().split('\n'), 
+         ...stagedFiles.trim().split('\n'),
+         ...untrackedFiles.trim().split('\n')]
+        .filter(file => file.trim() !== '')
+      );
+      
+      // Filter files by extension if requested
+      const filesToProcess = filterByExtension ? 
+        Array.from(allFiles).filter(file => this.shouldIncludeFile(file)) : 
+        Array.from(allFiles);
+      
+      // Get content for each file with caching
+      for (const filePath of filesToProcess) {
+        try {
+          // Check cache first if enabled
+          const cacheKey = `uncommitted:${filePath}`;
+          if (useCache && this.uncommittedFileCache.has(cacheKey)) {
+            fileContents.set(filePath, this.uncommittedFileCache.get(cacheKey) || '');
+            continue;
+          }
+          
+          // For uncommitted files, get the current content
+          const { stdout: fileContent } = await execAsync(`cat "${filePath}"`);
+          
+          // Cache the result if caching is enabled
+          if (useCache) {
+            this.uncommittedFileCache.set(cacheKey, fileContent);
+          }
+          
+          fileContents.set(filePath, fileContent);
+        } catch (error) {
+          console.error(`Error reading file ${filePath}:`, error);
+        }
+      }
+      
+      return fileContents;
+    } catch (error) {
+      console.error('Error getting uncommitted files content:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Gets all changed files with their content from the latest commit
+   * @param useCache Whether to use the cache (default: true)
+   * @returns Promise with map of file paths to their content or null if error
+   */
+  public static async getChangedFilesContent(useCache: boolean = true): Promise<Map<string, string> | null> {
+    try {
+      // Check if we're in a git repository
+      if (!(await this.isGitRepository())) {
+        return null;
+      }
+      
+      // Get the list of files changed in the latest commit directly
+      // This is more efficient than calling getLatestCommitChanges() which does the same thing
+      const { stdout: changedFilesOutput } = await execAsync('git diff-tree --no-commit-id --name-only -r HEAD');
+      
+      if (!changedFilesOutput.trim()) {
+        return new Map();
+      }
+      
+      // Use a Set for efficient tracking of unique file paths
+      const changedFilesSet = new Set<string>(changedFilesOutput.trim().split('\n'));
+      const fileContents = new Map<string, string>();
+      
+      // Process files from the latest commit using the improved getFileFromLatestCommit with caching
+      for (const filePath of changedFilesSet) {
+        const content = await this.getFileFromLatestCommit(filePath, useCache);
         if (content !== null) {
           fileContents.set(filePath, content);
+        } else {
+          // If the file doesn't exist in HEAD or on disk, mark it as deleted
+          fileContents.set(filePath, '(File was deleted in this commit)');
         }
       }
       
@@ -296,11 +419,12 @@ export class GitService {
   /**
    * Gets the content of a specific file, whether it's committed or not
    * @param filePath Path to the file
+   * @param useCache Whether to use the cache (default: true)
    * @returns Promise with the file content or null if error
    */
-  public static async getFileContent(filePath: string): Promise<string | null> {
+  public static async getFileContent(filePath: string, useCache: boolean = true): Promise<string | null> {
     // First try to get from latest commit
-    const commitContent = await this.getFileFromLatestCommit(filePath);
+    const commitContent = await this.getFileFromLatestCommit(filePath, useCache);
     if (commitContent !== null) {
       return commitContent;
     }
