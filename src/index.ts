@@ -2,38 +2,15 @@
 
 import { Command } from 'commander';
 import { GitService, ollamaService, FileService } from './services';
-import { CODE_REVIEW_CONFIG } from './config/codeReview.config';
+import { CODE_REVIEW_CONFIG } from './config';
 
 const program = new Command();
 
-// Configure the CLI
 program
   .name('rcd')
-  .description('Review Code Daemon - A command-line utility')
+  .description('Review Code - A command-line utility to review code changes')
   .version('1.0.0');
 
-
-// Add status command to show uncommitted changes
-program
-  .command('status')
-  .description('Show all uncommitted changes in the repository')
-  .action(async () => {
-    const isGitRepo = await GitService.isGitRepository();
-    if (!isGitRepo) {
-      console.error('Not a git repository');
-      process.exit(1);
-    }
-    
-    const uncommittedChanges = await GitService.getUncommittedChanges();
-    if (uncommittedChanges) {
-      console.log('Uncommitted Changes:');
-      console.log(uncommittedChanges);
-    } else {
-      console.log('Error retrieving uncommitted changes');
-    }
-  });
-
-// Add hunks command to show changed parts of unstaged/uncommitted files
 program
   .command('hunks')
   .description('Show only the changed parts (hunks) of unstaged/uncommitted files')
@@ -47,8 +24,7 @@ program
     }
     
     try {
-      // Get the hunks based on whether we want staged or unstaged changes
-      const hunksMap = options.staged
+        const hunksMap = options.staged
         ? await GitService.getStagedHunks(options.file)
         : await GitService.getUncommittedHunks(options.file);
       
@@ -64,7 +40,6 @@ program
       
       console.log(`Found changes in ${hunksMap.size} file(s):\n`);
       
-      // Display the hunks for each file
       for (const [filePath, hunks] of hunksMap.entries()) {
         console.log(`\n=== ${filePath} ===`);
         hunks.forEach((hunk, index) => {
@@ -79,7 +54,6 @@ program
     }
   });
 
-// Add review command to send uncommitted code files to Ollama for review
 program
   .command('review')
   .description('Send uncommitted code files to Ollama for code review')
@@ -95,15 +69,12 @@ program
       process.exit(1);
     }
 
-    // String to collect all review output for saving to file
     let reviewOutput = '';
     
-    // Helper function to append to review output
     const appendToReviewOutput = (text: string) => {
       reviewOutput += text + '\n';
     };
 
-    // Show which file extensions will be reviewed
     if (!options.all && !options.file) {
       const message = `Fetching ${options.staged ? 'staged' : 'uncommitted'} code files (extensions: ${CODE_REVIEW_CONFIG.FILE_EXTENSIONS.join(', ')})`;
       console.log(message + '...');
@@ -115,16 +86,14 @@ program
     }
     
     if (options.file) {
-      // Review a specific file
       if (options.hunksOnly) {
-        // Get only the added lines from the specified file
-        const addedLinesMap = await GitService.getAddedLines(options.file, options.staged);
+        const addedLinesMap = await GitService.getAddedLines(options.file, options.staged, !options.all);
         
         if (!addedLinesMap || addedLinesMap.size === 0) {
           const message = `No added lines found in ${options.file}`;
           console.log(message);
           appendToReviewOutput(message);
-          await FileService.saveReviewOutput(reviewOutput);
+          await FileService.writeReviewOutputToFile(reviewOutput);
           process.exit(0);
         }
         
@@ -133,7 +102,7 @@ program
           const message = `No added lines found in ${options.file}`;
           console.log(message);
           appendToReviewOutput(message);
-          await FileService.saveReviewOutput(reviewOutput);
+          await FileService.writeReviewOutputToFile(reviewOutput);
           process.exit(0);
         }
         
@@ -141,7 +110,6 @@ program
         console.log(reviewingMessage);
         appendToReviewOutput(reviewingMessage);
         
-        // Display the formatted code before the review
         const codeHeader = `\n=== Added Code in ${options.file} ===`;
         console.log(codeHeader);
         appendToReviewOutput(codeHeader);
@@ -161,23 +129,21 @@ program
           console.log(review);
           appendToReviewOutput(review);
           
-          // Save the review output to REVIEW.MD
-          await FileService.saveReviewOutput(reviewOutput);
+          await FileService.writeReviewOutputToFile(reviewOutput);
         } else {
           const errorMessage = 'Failed to get code review from Ollama service';
           console.error(errorMessage);
           appendToReviewOutput(errorMessage);
-          await FileService.saveReviewOutput(reviewOutput);
+          await FileService.writeReviewOutputToFile(reviewOutput);
           process.exit(1);
         }
       } else {
-        // Review the entire file (committed or uncommitted)
         const fileContent = await GitService.getFileContent(options.file);
         if (!fileContent) {
           const errorMessage = `File ${options.file} not found in the latest commit or on disk`;
           console.error(errorMessage);
           appendToReviewOutput(errorMessage);
-          await FileService.saveReviewOutput(reviewOutput);
+          await FileService.writeReviewOutputToFile(reviewOutput);
           process.exit(1);
         }
         
@@ -194,25 +160,23 @@ program
           console.log(review);
           appendToReviewOutput(review);
           
-          // Save the review output to REVIEW.MD
-          await FileService.saveReviewOutput(reviewOutput);
+          await FileService.writeReviewOutputToFile(reviewOutput);
         } else {
           const errorMessage = 'Failed to get code review from Ollama service';
           console.error(errorMessage);
           appendToReviewOutput(errorMessage);
-          await FileService.saveReviewOutput(reviewOutput);
+          await FileService.writeReviewOutputToFile(reviewOutput);
           process.exit(1);
         }
       }
     } else if (options.hunksOnly) {
-      // Review only added lines from all files
-      const addedLinesMap = await GitService.getAddedLines(undefined, options.staged);
+      const addedLinesMap = await GitService.getAddedLines(undefined, options.staged, !options.all);
       
       if (!addedLinesMap) {
         const errorMessage = 'Failed to get added lines';
         console.error(errorMessage);
         appendToReviewOutput(errorMessage);
-        await FileService.saveReviewOutput(reviewOutput);
+        await FileService.writeReviewOutputToFile(reviewOutput);
         process.exit(1);
       }
       
@@ -220,7 +184,7 @@ program
         const message = `No added lines found in ${options.staged ? 'staged' : 'unstaged'} changes`;
         console.log(message);
         appendToReviewOutput(message);
-        await FileService.saveReviewOutput(reviewOutput);
+        await FileService.writeReviewOutputToFile(reviewOutput);
         process.exit(0);
       }
       
@@ -233,7 +197,6 @@ program
         console.log(reviewingMessage);
         appendToReviewOutput(reviewingMessage);
         
-        // Display the formatted code before the review
         const codeHeader = `\n=== Added Code in ${filePath} ===`;
         console.log(codeHeader);
         appendToReviewOutput(codeHeader);
@@ -262,17 +225,15 @@ program
         }
       }
       
-      // Save the review output to REVIEW.MD
-      await FileService.saveReviewOutput(reviewOutput);
+      await FileService.writeReviewOutputToFile(reviewOutput);
     } else {
-      // Review all uncommitted files
       const uncommittedFiles = await GitService.getUncommittedFilesContent(!options.all);
       
       if (!uncommittedFiles) {
         const errorMessage = 'Failed to get uncommitted files content';
         console.error(errorMessage);
         appendToReviewOutput(errorMessage);
-        await FileService.saveReviewOutput(reviewOutput);
+        await FileService.writeReviewOutputToFile(reviewOutput);
         process.exit(1);
       }
       
@@ -280,7 +241,7 @@ program
         const message = 'No uncommitted changes found';
         console.log(message);
         appendToReviewOutput(message);
-        await FileService.saveReviewOutput(reviewOutput);
+        await FileService.writeReviewOutputToFile(reviewOutput);
         process.exit(0);
       }
       
@@ -311,16 +272,13 @@ program
         }
       }
       
-      // Save the review output to REVIEW.MD
-      await FileService.saveReviewOutput(reviewOutput);
+      await FileService.writeReviewOutputToFile(reviewOutput);
     }
   });
 
-// Default command when no arguments are provided
 if (process.argv.length <= 2) {
-  console.log('Welcome to Review Code Daemon (rcd)!');
+  console.log('Welcome to Review Code (rcd)!');
   console.log('Use --help to see available commands');
 }
 
-// Parse command-line arguments
 program.parse();

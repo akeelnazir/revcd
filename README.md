@@ -1,6 +1,6 @@
-# RCD (Review Code Daemon)
+# RCD (Review Code)
 
-A command-line utility built with Node.js and TypeScript.
+A command-line utility to review code changes, built with Node.js and TypeScript.
 
 ## Installation
 
@@ -25,23 +25,26 @@ Once installed, you can use the `rcd` command from anywhere in your terminal.
   rcd --help
   ```
 
-- **Review**: Review a file
+- **Review**: Review code files
   ```bash
-  rcd review -f <file>
+  rcd review [options]
   ```
+  Options:
+  - `-m, --model <model>`: Specify the Ollama model to use for review
+  - `-f, --file <file>`: Review only a specific file
+  - `-a, --all`: Review all files, not just code files
+  - `-h, --hunks-only`: Review only the added hunks/lines instead of entire files
+  - `-s, --staged`: Review staged changes instead of unstaged changes (works with --hunks-only)
 
-- **Git Status**: Show all uncommitted changes in the repository
+- **Hunks**: Show only the changed parts (hunks) of unstaged/uncommitted files
   ```bash
-  rcd status
+  rcd hunks [options]
   ```
+  Options:
+  - `-f, --file <file>`: Show hunks for a specific file only
+  - `-s, --staged`: Show hunks for staged changes instead of unstaged
 
-- **Git File Diff**: Show the diff content for a specific uncommitted file
-  ```bash
-  rcd diff <file>                  # Show unstaged changes for a file
-  rcd diff <file> --staged         # Show staged changes for a file
-  rcd diff <file> --plain          # Show file content without diff format (no + or - prefixes)
-  rcd diff <file> --staged --plain # Show staged content without diff format
-  ```
+
 
 ## Environment Variables
 
@@ -61,6 +64,9 @@ OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 OLLAMA_DEFAULT_TEMPERATURE=0.7
 OLLAMA_DEFAULT_TOP_P=0.9
 OLLAMA_DEFAULT_MAX_TOKENS=2048
+
+# Rate limiting (milliseconds between requests)
+OLLAMA_MIN_REQUEST_INTERVAL=500
 ```
 
 A `.env.example` file is provided as a template.

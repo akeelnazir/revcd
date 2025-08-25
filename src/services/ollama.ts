@@ -1,4 +1,4 @@
-import { OLLAMA_CONFIG } from '../config/ollama.config';
+import { OLLAMA_CONFIG } from '../config';
 
 export interface OllamaRequest {
   model: string;
@@ -10,12 +10,13 @@ export interface OllamaRequest {
     top_p?: number;
     stop?: string[];
   };
-};
+}
 
 export interface OllamaResponse {
+  model: string;
+  created_at: string;
   response: string;
   done: boolean;
-  context?: number[];
   total_duration?: number;
   load_duration?: number;
   prompt_eval_count?: number;
@@ -24,171 +25,317 @@ export interface OllamaResponse {
   eval_duration?: number;
 }
 
-export interface OllamaEmbeddingRequest {
-  model: string;
-  prompt: string;
-}
-
-export interface OllamaEmbeddingResponse {
-  embedding: number[];
+interface CacheEntry {
+  response: string;
+  timestamp: number;
   model: string;
 }
 
-export interface CompletionOption {
-  id: string;
-  text: string;
-  confidence: number;
-  context: string;
+const SENSITIVE_PATTERNS = {
+  API_KEY: /(['"](api[_-]?key|api[_-]?secret|app[_-]?key|app[_-]?secret|access[_-]?key|access[_-]?token|auth[_-]?token)['"]\s*[=:]\s*['"])[^'"]+(['"])/gi,
+  PASSWORD: /(['"](password|passwd|pwd|secret)['"]\s*[=:]\s*['"])[^'"]+(['"])/gi,
+  CONNECTION_STRING: /(connection[_-]?string|conn[_-]?str)\s*[=:]\s*['"][^'"]+['"]|mongodb(\+srv)?:\/\/[^\s]+|postgres(ql)?:\/\/[^\s]+|mysql:\/\/[^\s]+/gi,
+  EMAIL: /([a-zA-Z0-9_\-\.]+)@([a-zA-Z0-9_\-\.]+)\.([a-zA-Z]{2,5})/gi,
+  IP_ADDRESS: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g
+};
+
+export interface OllamaServiceConfig {
+  baseUrl?: string;
+  defaultModel?: string;
+  cacheTTL?: number;
+  defaultTemperature?: number;
+  defaultMaxTokens?: number;
+  defaultTopP?: number;
+  minRequestInterval?: number;
+  requestTimeout?: number;
 }
 
 class OllamaService {
   private baseUrl: string;
   private abortController: AbortController | null = null;
   private defaultModel: string;
+  private responseCache: Map<string, CacheEntry> = new Map();
+  private cacheTTL: number = 1000 * 60 * 30;
+  private defaultTemperature: number;
+  private defaultMaxTokens: number;
+  private defaultTopP: number;
+  private lastRequestTime: number = 0;
+  private minRequestInterval: number = 500;
+  private requestTimeout: number = 60000;
 
-  constructor(baseUrl: string = 'http://localhost:11434') {
-    this.baseUrl = baseUrl;
-    this.defaultModel = OLLAMA_CONFIG.DEFAULT_MODEL;
+  constructor(config?: OllamaServiceConfig) {
+    this.baseUrl = config?.baseUrl || OLLAMA_CONFIG.API_BASE_URL;
+    this.defaultModel = config?.defaultModel || OLLAMA_CONFIG.DEFAULT_MODEL;
+    this.cacheTTL = config?.cacheTTL || 1000 * 60 * 30;
+    this.defaultTemperature = config?.defaultTemperature || parseFloat(OLLAMA_CONFIG.DEFAULT_TEMPERATURE);
+    this.defaultMaxTokens = config?.defaultMaxTokens || parseInt(OLLAMA_CONFIG.DEFAULT_MAX_TOKENS);
+    this.defaultTopP = config?.defaultTopP || parseFloat(OLLAMA_CONFIG.DEFAULT_TOP_P);
+    this.minRequestInterval = OLLAMA_CONFIG.MIN_REQUEST_INTERVAL || 500;
+    this.requestTimeout = OLLAMA_CONFIG.REQUEST_TIMEOUT || 60000;
+  }
+  
+  private generateCacheKey(codeContent: string, model: string, options?: any): string {
+    const optionsStr = options ? JSON.stringify(options) : '';
+    return `${model}:${codeContent.length}:${this.hashString(codeContent + optionsStr)}`;
   }
 
-  cancelRequest(): void {
-    if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = null;
+  private hashString(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
     }
+    return hash.toString(16);
   }
-
-  async checkHealth(): Promise<boolean> {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/tags`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000)
+  
+  private sanitizeCodeContent(codeContent: string): string {
+    if (codeContent === null || codeContent === undefined) {
+      console.error('sanitizeCodeContent received null or undefined input');
+      return '';
+    }
+    
+    if (typeof codeContent !== 'string') {
+      console.error(`sanitizeCodeContent received non-string input: ${typeof codeContent}`);
+      try {
+        codeContent = String(codeContent);
+      } catch (error) {
+        console.error('Failed to convert input to string:', error);
+        return '';
+      }
+    }
+    
+    let sanitized = codeContent;
+    
+    Object.entries(SENSITIVE_PATTERNS).forEach(([type, pattern]) => {
+      sanitized = sanitized.replace(pattern, (match) => {
+        if (type === 'API_KEY' || type === 'PASSWORD' || type === 'CONNECTION_STRING') {
+          return match.replace(/(['"'])[^'"']+(['"'])/, '$1[REDACTED]$2');
+        } else if (type === 'EMAIL') {
+          return match.replace(/([a-zA-Z0-9_\-\.]{3})[a-zA-Z0-9_\-\.]+@/, '$1***@');
+        } else if (type === 'IP_ADDRESS') {
+          return '[REDACTED_IP]';
+        }
+        return match;
       });
-      return response.ok;
-    } catch {
-      return false;
+    });
+    
+    return sanitized;
+  }
+  
+  private cleanCache(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.responseCache.entries()) {
+      if (now - entry.timestamp > this.cacheTTL) {
+        this.responseCache.delete(key);
+      }
+    }
+  }
+  
+  private async applyRateLimiting(): Promise<void> {
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    
+    if (timeSinceLastRequest < this.minRequestInterval) {
+      const waitTime = this.minRequestInterval - timeSinceLastRequest;
+      console.debug(`Rate limiting: waiting ${waitTime}ms before next request`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+    
+    this.lastRequestTime = Date.now();
+  }
+  
+  private processResponseChunk(data: Partial<OllamaResponse>, onResponseText: (text: string) => void): void {
+    if (typeof data.response === 'string') {
+      onResponseText(data.response);
+    } else if (data.done === true) {
+      console.warn('Received completion signal but no valid response content');
     }
   }
 
-  async getAvailableModels(): Promise<string[]> {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/tags`);
-      if (!response.ok) return [];
-
-      const data = await response.json();
-      return data.models?.map((model: any) => model.name) || [];
-    } catch {
-      return [];
+  async reviewCode(
+    codeContent: string, 
+    filePath?: string, 
+    model?: string,
+    options?: {
+      temperature?: number;
+      maxTokens?: number;
+      topP?: number;
+      timeout?: number;
+      useCache?: boolean;
     }
-  }
+  ): Promise<string | null> {
+    if (!codeContent || codeContent.trim() === '') {
+      console.error('Cannot review empty code content');
+      return null;
+    }
 
-  /**
-   * Sends code to Ollama for review
-   * @param codeContent The code content to review
-   * @param filePath Optional file path for context
-   * @param model Optional model to use for review (defaults to config)
-   * @returns Promise with the review response or null if error
-   */
-  async reviewCode(codeContent: string, filePath?: string, model?: string): Promise<string | null> {
+    this.cleanCache();
+
     try {
       const modelToUse = model || this.defaultModel;
+      const useCache = options?.useCache !== false;
       
-      // Create a prompt for code review
-      let prompt = `Please review the following code`;
-      if (filePath) {
-        prompt += ` from file ${filePath}`;
+      if (!modelToUse) {
+        console.error('No model specified and no default model configured');
+        return null;
       }
-      prompt += `:
-
-${codeContent}
-
-`;
-      prompt += `Provide a concise code review focusing on:
+      
+      if (useCache) {
+        const cacheKey = this.generateCacheKey(codeContent, modelToUse, options);
+        const cachedResult = this.responseCache.get(cacheKey);
+        
+        if (cachedResult && (Date.now() - cachedResult.timestamp <= this.cacheTTL)) {
+          console.log('Using cached code review result');
+          return cachedResult.response;
+        }
+      }
+      
+      const sanitizedCode = this.sanitizeCodeContent(codeContent);
+      
+      const promptParts = [
+        `Please review the following code${filePath ? ` from file ${filePath}` : ''}:`,
+        `
+${sanitizedCode}
+`,
+        `Provide a concise code review focusing on:
 1. Potential bugs or errors
 2. Performance issues
 3. Security concerns
 4. Code style and best practices
-5. Suggestions for improvement`;
+5. Suggestions for improvement`
+      ];
+      
+      const prompt = promptParts.join('\n');
 
       const requestBody: OllamaRequest = {
         model: modelToUse,
-        prompt: prompt,
-        stream: true, // Enable streaming for better UX
+        prompt,
+        stream: true, 
         options: {
-          temperature: parseFloat(OLLAMA_CONFIG.DEFAULT_TEMPERATURE),
-          max_tokens: parseInt(OLLAMA_CONFIG.DEFAULT_MAX_TOKENS),
-          top_p: parseFloat(OLLAMA_CONFIG.DEFAULT_TOP_P)
+          temperature: options?.temperature ?? this.defaultTemperature,
+          max_tokens: options?.maxTokens ?? this.defaultMaxTokens,
+          top_p: options?.topP ?? this.defaultTopP
         }
       };
 
       this.abortController = new AbortController();
-      const response = await fetch(`${this.baseUrl}/api/generate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody),
-        signal: this.abortController.signal
-      });
+      
+      const timeoutMs = options?.timeout || this.requestTimeout;
+      
+      const timeoutController = new AbortController();
+      const timeoutId = setTimeout(() => {
+        console.warn(`Request timed out after ${timeoutMs}ms`);
+        timeoutController.abort();
+        this.abortController?.abort();
+      }, timeoutMs);
+      
+      const combinedSignal = AbortSignal.any([
+        this.abortController.signal,
+        timeoutController.signal
+      ]);
 
-      if (!response.ok) {
-        console.error(`Error from Ollama API: ${response.status} ${response.statusText}`);
-        return null;
-      }
-
-      // Handle streaming response
-      if (!response.body) {
-        console.error('Response body is null');
-        return null;
-      }
-
-      const reader = response.body.getReader();
-      let fullResponse = '';
+      await this.applyRateLimiting();
       
       try {
-        // Process the stream
+        const response = await fetch(`${this.baseUrl}/api/generate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(requestBody),
+          signal: combinedSignal
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => 'No error details available');
+          console.error(`Error from Ollama API: ${response.status} ${response.statusText}`, errorText);
+          return null;
+        }
+
+        if (!response.body) {
+          console.error('Response body is null');
+          return null;
+        }
+        
+        const reader = response.body.getReader();
+        let fullResponse = '';
+        let validResponseReceived = false;
+        
         while (true) {
           const { done, value } = await reader.read();
+          
           if (done) break;
           
-          // Convert the chunk to text
           const chunk = new TextDecoder().decode(value);
-          
-          // Process each line (each JSON object)
           const lines = chunk.split('\n').filter(line => line.trim());
           
           for (const line of lines) {
             try {
-              const data = JSON.parse(line);
-              if (data.response) {
-                // Append to the full response
-                fullResponse += data.response;
-                
-                // Print the chunk to show progress (optional)
-                process.stdout.write(data.response);
-              }
+              const data = JSON.parse(line) as Partial<OllamaResponse>;
+              
+              this.processResponseChunk(data, (responseText) => {
+                validResponseReceived = true;
+                fullResponse += responseText;
+                process.stdout.write(responseText);
+              });
             } catch (e) {
-              // Skip invalid JSON
-              console.error('Error parsing JSON line:', e);
+              console.error('Error parsing JSON line:', e, '\nProblematic line:', line);
             }
           }
         }
         
-        // Add a newline at the end for better formatting
-        process.stdout.write('\n');
+        if (validResponseReceived) {
+          process.stdout.write('\n');
+        }
+        
+        if (!fullResponse.trim()) {
+          console.error('Received empty response from Ollama API');
+          return null;
+        }
+        
+        if (useCache) {
+          const cacheKey = this.generateCacheKey(codeContent, modelToUse, options);
+          this.responseCache.set(cacheKey, {
+            response: fullResponse,
+            timestamp: Date.now(),
+            model: modelToUse
+          });
+        }
+        
         return fullResponse;
-      } catch (error) {
-        console.error('Error processing stream:', error);
-        return fullResponse || null;
+      } finally {
+        clearTimeout(timeoutId);
       }
     } catch (error) {
-      console.error('Error reviewing code with Ollama:', error);
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        console.error('Request to Ollama API was aborted (timeout or manual cancellation)');
+      } else {
+        console.error('Error reviewing code with Ollama:', error);
+        
+        if (error instanceof Error) {
+          console.error(`Error name: ${error.name}, Message: ${error.message}`);
+          console.error(`Stack trace: ${error.stack}`);
+        }
+        
+        if (error instanceof TypeError) {
+          console.error('Type error occurred, possibly due to network issues or invalid API response format');
+        } else if (error instanceof SyntaxError) {
+          console.error('Syntax error occurred, possibly due to invalid JSON in API response');
+        } else if (typeof error === 'object' && error !== null && 'code' in error) {
+          const networkError = error as { code?: string };
+          if (networkError.code === 'ECONNREFUSED') {
+            console.error('Connection refused. Is the Ollama server running?');
+          } else if (networkError.code === 'ENOTFOUND') {
+            console.error('Host not found. Check the baseUrl configuration.');
+          }
+        }
+      }
       return null;
     } finally {
       this.abortController = null;
     }
   }
-
 }
 
-export const ollamaService = new OllamaService(OLLAMA_CONFIG.API_BASE_URL);
+export const ollamaService = new OllamaService();

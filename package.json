@@ -1,7 +1,7 @@
 {
   "name": "rcd",
   "version": "1.0.0",
-  "description": "Review Code daemon",
+  "description": "Review Code utility",
   "main": "dist/index.js",
   "bin": {
     "rcd": "./dist/index.js"
