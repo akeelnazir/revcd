@@ -1,12 +1,29 @@
-# RCD (Review Code)
+# REVCD (Review Code)
 
 A command-line utility to review code changes, built with Node.js and TypeScript.
 
 ## Installation
 
+### From npm (recommended)
+
+You can install the package directly from npm:
+
+```bash
+# Install globally
+npm install -g revcd
+
+# Or with yarn
+yarn global add revcd
+```
+
+### From Source
+
 After cloning the repository, you can install the CLI globally on your system:
 
 ```bash
+# Install dependencies
+yarn install
+
 # Build the project
 yarn build
 
@@ -16,18 +33,18 @@ yarn link
 
 ## Usage
 
-Once installed, you can use the `rcd` command from anywhere in your terminal.
+Once installed, you can use the `revcd` command from anywhere in your terminal.
 
 ### Available Commands
 
 - **Help**: Display available commands
   ```bash
-  rcd --help
+  revcd --help
   ```
 
 - **Review**: Review code files
   ```bash
-  rcd review [options]
+  revcd review [options]
   ```
   Options:
   - `-m, --model <model>`: Specify the Ollama model to use for review
@@ -38,7 +55,7 @@ Once installed, you can use the `rcd` command from anywhere in your terminal.
 
 - **Hunks**: Show only the changed parts (hunks) of unstaged/uncommitted files
   ```bash
-  rcd hunks [options]
+  revcd hunks [options]
   ```
   Options:
   - `-f, --file <file>`: Show hunks for a specific file only

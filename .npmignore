@@ -1,0 +1,19 @@
+# Source files
+src/
+tsconfig.json
+
+# Development files
+.env
+.env.example
+.gitignore
+.windsurf/
+REVIEW.md
+
+# Node modules
+node_modules/
+
+# Git files
+.git/
+
+# Build artifacts
+*.log

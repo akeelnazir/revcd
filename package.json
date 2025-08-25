@@ -1,16 +1,16 @@
 {
-  "name": "rcd",
+  "name": "revcd",
   "version": "1.0.0",
   "description": "Review Code utility",
   "main": "dist/index.js",
   "bin": {
-    "rcd": "./dist/index.js"
+    "revcd": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "rcd": "node dist/index.js"
+    "revcd": "node dist/index.js"
   },
   "dependencies": {
     "axios": "1.11.0",
@@ -24,8 +24,12 @@
     "ts-node": "10.9.2",
     "typescript": "5.9.2"
   },
-  "keywords": [],
+  "keywords": ["git", "code-review", "cli", "git-changes", "commit-changes", "code-quality"],
   "author": "Akeel Nazir",
   "license": "ISC",
-  "type": "commonjs"
+  "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/akeelnazir/revcd.git"
+  }
 }
