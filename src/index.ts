@@ -3,6 +3,8 @@
 import { Command } from 'commander';
 import { GitService, ollamaService, FileService } from './services';
 import { CODE_REVIEW_CONFIG } from './config';
+import * as path from 'path';
+import * as fs from 'fs';
 
 const program = new Command();
 
@@ -280,5 +282,64 @@ if (process.argv.length <= 2) {
   console.log('Welcome to Review Code (rcd)!');
   console.log('Use --help to see available commands');
 }
+
+program
+  .command('genv')
+  .description('Copy .env.example from the package to a .env file in the current directory')
+  .option('-f, --force', 'overwrite existing .env file if it exists')
+  .action(async (options) => {
+    try {
+      let envExamplePath;
+      
+      const possiblePaths = [
+        path.join(__dirname, '..', '.env.example'),
+        path.join(process.cwd(), '.env.example'),
+        path.join(__dirname, '..', '..', 'node_modules', 'revcd', '.env.example'),
+        path.join(path.dirname(process.execPath), '..', 'lib', 'node_modules', 'revcd', '.env.example')
+      ];
+      
+      const isDebug = process.env.DEBUG === 'true';
+      if (isDebug) {
+        console.log('Searching for .env.example in the following paths:');
+        possiblePaths.forEach(p => console.log(` - ${p}`));
+      }
+      
+      for (const possiblePath of possiblePaths) {
+        try {
+          await fs.promises.access(possiblePath, fs.constants.R_OK);
+          envExamplePath = possiblePath;
+          break;
+        } catch (error) {
+          // Path doesn't exist, try the next one
+        }
+      }
+      
+      if (!envExamplePath) {
+        console.error('Error: .env.example file not found in the package directory');
+        process.exit(1);
+      }
+      
+      const envExampleContent = await fs.promises.readFile(envExamplePath, 'utf8');
+      
+      const envPath = path.join(process.cwd(), '.env');
+      
+      try {
+        await fs.promises.access(envPath, fs.constants.F_OK);
+        if (!options.force) {
+          console.log('.env file already exists. Use --force to overwrite.');
+          process.exit(0);
+        }
+        console.log('Overwriting existing .env file...');
+      } catch (error) {
+        // File doesn't exist, continue
+      }
+      
+      await FileService.writeContentToFile(envPath, envExampleContent);
+      console.log('Successfully created .env file from .env.example');
+    } catch (error) {
+      console.error('Error creating .env file:', error);
+      process.exit(1);
+    }
+  });
 
 program.parse();

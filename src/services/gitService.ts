@@ -269,8 +269,8 @@ export class GitService {
         for (const hunk of hunks) {
           const lines = hunk.split('\n');
           const addedLines = lines
-            .filter(line => line.startsWith('+') && !line.startsWith('+++'))
-            .map(line => line.substring(1))
+            .filter((line: string) => line.startsWith('+') && !line.startsWith('+++'))
+            .map((line: string) => line.substring(1))
             .join('\n');
           
           if (addedLines) {

@@ -1,4 +1,5 @@
 import { OLLAMA_CONFIG } from '../config';
+import axios from 'axios';
 
 export interface OllamaRequest {
   model: string;
@@ -230,100 +231,102 @@ ${sanitizedCode}
         this.abortController?.abort();
       }, timeoutMs);
       
-      const combinedSignal = AbortSignal.any([
-        this.abortController.signal,
-        timeoutController.signal
-      ]);
+      const combinedSignal = this.abortController.signal;
 
       await this.applyRateLimiting();
       
       try {
-        const response = await fetch(`${this.baseUrl}/api/generate`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(requestBody),
-          signal: combinedSignal
-        });
+        const axiosResponse = await axios.post(
+          `${this.baseUrl}/api/generate`,
+          requestBody,
+          {
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            signal: combinedSignal,
+            responseType: 'stream'
+          }
+        );
 
-        if (!response.ok) {
-          const errorText = await response.text().catch(() => 'No error details available');
-          console.error(`Error from Ollama API: ${response.status} ${response.statusText}`, errorText);
+        if (axiosResponse.status !== 200) {
+          console.error(`Error from Ollama API: ${axiosResponse.status} ${axiosResponse.statusText}`);
           return null;
         }
 
-        if (!response.body) {
-          console.error('Response body is null');
+        if (!axiosResponse.data) {
+          console.error('Response data is null');
           return null;
         }
         
-        const reader = response.body.getReader();
         let fullResponse = '';
         let validResponseReceived = false;
         
-        while (true) {
-          const { done, value } = await reader.read();
-          
-          if (done) break;
-          
-          const chunk = new TextDecoder().decode(value);
-          const lines = chunk.split('\n').filter(line => line.trim());
-          
-          for (const line of lines) {
-            try {
-              const data = JSON.parse(line) as Partial<OllamaResponse>;
-              
-              this.processResponseChunk(data, (responseText) => {
-                validResponseReceived = true;
-                fullResponse += responseText;
-                process.stdout.write(responseText);
-              });
-            } catch (e) {
-              console.error('Error parsing JSON line:', e, '\nProblematic line:', line);
+        return new Promise<string | null>((resolve, reject) => {
+          axiosResponse.data.on('data', (chunk: Buffer) => {
+            const text = chunk.toString('utf-8');
+            const lines = text.split('\n').filter(line => line.trim());
+            
+            for (const line of lines) {
+              try {
+                const data = JSON.parse(line) as Partial<OllamaResponse>;
+                
+                this.processResponseChunk(data, (responseText) => {
+                  validResponseReceived = true;
+                  fullResponse += responseText;
+                  process.stdout.write(responseText);
+                });
+              } catch (e) {
+                console.error('Error parsing JSON line:', e, '\nProblematic line:', line);
+              }
             }
-          }
-        }
-        
-        if (validResponseReceived) {
-          process.stdout.write('\n');
-        }
-        
-        if (!fullResponse.trim()) {
-          console.error('Received empty response from Ollama API');
-          return null;
-        }
-        
-        if (useCache) {
-          const cacheKey = this.generateCacheKey(codeContent, modelToUse, options);
-          this.responseCache.set(cacheKey, {
-            response: fullResponse,
-            timestamp: Date.now(),
-            model: modelToUse
           });
-        }
-        
-        return fullResponse;
+          
+          axiosResponse.data.on('end', () => {
+            if (validResponseReceived) {
+              process.stdout.write('\n');
+              
+              if (useCache) {
+                const cacheKey = this.generateCacheKey(codeContent, modelToUse, options);
+                this.responseCache.set(cacheKey, {
+                  response: fullResponse,
+                  timestamp: Date.now(),
+                  model: modelToUse
+                });
+              }
+              
+              resolve(fullResponse);
+            } else {
+              console.error('Received empty response from Ollama API');
+              resolve(null);
+            }
+          });
+          
+          axiosResponse.data.on('error', (err: Error) => {
+            console.error('Error reading stream:', err);
+            reject(err);
+          });
+        });
       } finally {
         clearTimeout(timeoutId);
       }
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
+      const e = error as Error;
+      if (e && e.name === 'AbortError') {
         console.error('Request to Ollama API was aborted (timeout or manual cancellation)');
       } else {
         console.error('Error reviewing code with Ollama:', error);
         
-        if (error instanceof Error) {
-          console.error(`Error name: ${error.name}, Message: ${error.message}`);
-          console.error(`Stack trace: ${error.stack}`);
+        if (e && e instanceof Error) {
+          console.error(`Error name: ${e.name}, Message: ${e.message}`);
+          console.error(`Stack trace: ${e.stack}`);
         }
         
-        if (error instanceof TypeError) {
+        if (e && e instanceof TypeError) {
           console.error('Type error occurred, possibly due to network issues or invalid API response format');
-        } else if (error instanceof SyntaxError) {
+        } else if (e && e instanceof SyntaxError) {
           console.error('Syntax error occurred, possibly due to invalid JSON in API response');
-        } else if (typeof error === 'object' && error !== null && 'code' in error) {
-          const networkError = error as { code?: string };
+        } else if (typeof e === 'object' && e !== null && 'code' in e) {
+          const networkError = e as { code?: string };
           if (networkError.code === 'ECONNREFUSED') {
             console.error('Connection refused. Is the Ollama server running?');
           } else if (networkError.code === 'ENOTFOUND') {
