@@ -285,59 +285,54 @@ if (process.argv.length <= 2) {
 
 program
   .command('genv')
-  .description('Copy .env.example from the package to a .env file in the current directory')
+  .description('Generate or append Ollama API configuration to .env file')
   .option('-f, --force', 'overwrite existing .env file if it exists')
   .action(async (options) => {
     try {
-      let envExamplePath;
-      
-      const possiblePaths = [
-        path.join(__dirname, '..', '.env.example'),
-        path.join(process.cwd(), '.env.example'),
-        path.join(__dirname, '..', '..', 'node_modules', 'revcd', '.env.example'),
-        path.join(path.dirname(process.execPath), '..', 'lib', 'node_modules', 'revcd', '.env.example')
-      ];
-      
-      const isDebug = process.env.DEBUG === 'true';
-      if (isDebug) {
-        console.log('Searching for .env.example in the following paths:');
-        possiblePaths.forEach(p => console.log(` - ${p}`));
-      }
-      
-      for (const possiblePath of possiblePaths) {
-        try {
-          await fs.promises.access(possiblePath, fs.constants.R_OK);
-          envExamplePath = possiblePath;
-          break;
-        } catch (error) {
-          // Path doesn't exist, try the next one
-        }
-      }
-      
-      if (!envExamplePath) {
-        console.error('Error: .env.example file not found in the package directory');
-        process.exit(1);
-      }
-      
-      const envExampleContent = await fs.promises.readFile(envExamplePath, 'utf8');
+      const ollamaConfig = `
+# Ollama API Configuration
+
+
+# API base URL
+OLLAMA_API_BASE_URL=http://localhost:11434
+
+
+# Model configurations
+OLLAMA_DEFAULT_MODEL=codellama:7b
+
+
+# Generation parameters
+OLLAMA_DEFAULT_TEMPERATURE=0.7
+OLLAMA_DEFAULT_TOP_P=0.9
+OLLAMA_DEFAULT_MAX_TOKENS=2048
+OLLAMA_REQUEST_TIMEOUT=60000
+
+
+# Rate limiting (milliseconds between requests)
+OLLAMA_MIN_REQUEST_INTERVAL=500
+
+
+# Code review parameters
+CODE_FILE_EXTENSIONS=ts,js,py,rb
+`;
       
       const envPath = path.join(process.cwd(), '.env');
       
       try {
         await fs.promises.access(envPath, fs.constants.F_OK);
-        if (!options.force) {
-          console.log('.env file already exists. Use --force to overwrite.');
-          process.exit(0);
+        if (options.force) {
+          await FileService.writeContentToFile(envPath, ollamaConfig);
+          console.log('Overwriting existing .env file with Ollama API configuration...');
+        } else {
+          await FileService.appendContentToFile(envPath, ollamaConfig);
+          console.log('Appended Ollama API configuration to existing .env file');
         }
-        console.log('Overwriting existing .env file...');
       } catch (error) {
-        // File doesn't exist, continue
+        await FileService.writeContentToFile(envPath, ollamaConfig);
+        console.log('Created new .env file with Ollama API configuration');
       }
-      
-      await FileService.writeContentToFile(envPath, envExampleContent);
-      console.log('Successfully created .env file from .env.example');
     } catch (error) {
-      console.error('Error creating .env file:', error);
+      console.error('Error updating .env file:', error);
       process.exit(1);
     }
   });

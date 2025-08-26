@@ -2,6 +2,54 @@ import { promises as fsPromises } from 'fs';
 import * as path from 'path';
 
 export class FileService {
+  public static async appendContentToFile(filePath: string, contentToAppend: string): Promise<void> {
+    if (!filePath) {
+      return Promise.reject(new Error('File path cannot be empty'));
+    }
+    
+    if (filePath.includes('\0')) {
+      return Promise.reject(new Error(`Invalid file path containing null bytes: ${filePath}`));
+    }
+    
+    if (contentToAppend === undefined) {
+      return Promise.reject(new Error('Content to append cannot be undefined'));
+    }
+
+    try {
+      const normalizedPath = path.normalize(filePath);
+      const directory = path.dirname(normalizedPath);
+      
+      try {
+        await FileService.createDirectoryIfNotExists(directory);
+      } catch (dirError) {
+        console.error(`Failed to create directory for file ${normalizedPath}:`, dirError);
+        return Promise.reject(new Error(
+          `Cannot append to ${normalizedPath}: Failed to create directory ${directory}. ` +
+          `${dirError instanceof Error ? dirError.message : String(dirError)}`
+        ));
+      }
+      
+      try {
+        await fsPromises.access(normalizedPath, fsPromises.constants.F_OK);
+        await fsPromises.appendFile(normalizedPath, contentToAppend, { encoding: 'utf8' });
+      } catch (error) {
+        await fsPromises.writeFile(normalizedPath, contentToAppend, { 
+          encoding: 'utf8',
+          mode: 0o644,
+          flag: 'w' 
+        });
+      }
+      
+      return Promise.resolve();
+    } catch (error) {
+      console.error(`Error appending to file at ${filePath}:`, error);
+      return Promise.reject(new Error(
+        `Failed to append to file at ${filePath}: ${error instanceof Error ? error.message : String(error)}. ` +
+        'Please check file permissions, disk space, and that the path is valid and accessible.'
+      ));
+    }
+  }
+
   public static async writeContentToFile(filePath: string, fileContent: string): Promise<void> {
     if (!filePath) {
       return Promise.reject(new Error('File path cannot be empty'));
