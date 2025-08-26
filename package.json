@@ -1,6 +1,6 @@
 {
   "name": "revcd",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Review Code utility",
   "main": "dist/index.js",
   "bin": {
@@ -24,7 +24,14 @@
     "ts-node": "10.9.2",
     "typescript": "5.9.2"
   },
-  "keywords": ["git", "code-review", "cli", "git-changes", "commit-changes", "code-quality"],
+  "keywords": [
+    "git",
+    "code-review",
+    "cli",
+    "git-changes",
+    "commit-changes",
+    "code-quality"
+  ],
   "author": "Akeel Nazir",
   "license": "ISC",
   "type": "commonjs",
