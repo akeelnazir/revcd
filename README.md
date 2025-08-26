@@ -1,6 +1,6 @@
 # REVCD (Review Code)
 
-A command-line utility to review code changes, built with Node.js and TypeScript.
+A command-line utility to list and review git commit changes, built with Node.js and TypeScript.
 
 ## Installation
 
@@ -42,7 +42,7 @@ Once installed, you can use the `revcd` command from anywhere in your terminal.
   revcd --help
   ```
 
-- **Review**: Review code files
+- **Review**: Review code files and changes
   ```bash
   revcd review [options]
   ```
@@ -61,6 +61,12 @@ Once installed, you can use the `revcd` command from anywhere in your terminal.
   - `-f, --file <file>`: Show hunks for a specific file only
   - `-s, --staged`: Show hunks for staged changes instead of unstaged
 
+- **Generate Env**: Copy the example environment file to your current directory
+  ```bash
+  revcd genv [options]
+  ```
+  Options:
+  - `-f, --force`: Overwrite existing .env file if it exists
 
 
 ## Environment Variables
@@ -84,6 +90,9 @@ OLLAMA_DEFAULT_MAX_TOKENS=2048
 
 # Rate limiting (milliseconds between requests)
 OLLAMA_MIN_REQUEST_INTERVAL=500
+
+# Code review parameters
+CODE_FILE_EXTENSIONS=ts,js,py,rb
 ```
 
 A `.env.example` file is provided as a template.
@@ -112,8 +121,12 @@ yarn dev
 
 - `src/index.ts`: Main entry point for the CLI
 - `src/services/`: Service modules
-  - `ollama.ts`: Ollama operations
-  - `gitService.ts`: Git operations
+  - `fileService.ts`: File operations
+  - `gitService.ts`: Git operations for retrieving commit changes
+  - `ollamaService.ts`: Ollama AI operations for code review
+- `src/config/`: Configuration modules
+  - `codeReview.config.ts`: Code review settings
+  - `ollama.config.ts`: Ollama API configuration
 
 
 ## License
