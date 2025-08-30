@@ -7,10 +7,12 @@
     "revcd": "./dist/index.js"
   },
   "scripts": {
+    "prebuild": "rimraf dist",
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "revcd": "node dist/index.js"
+    "revcd": "node dist/index.js",
+    "test": "node -r ts-node/register -e \"require('glob').sync('src/tests/**/*.test.ts').forEach(file => require('./' + file))\""
   },
   "dependencies": {
     "axios": "1.6.2",
@@ -20,7 +22,9 @@
   "devDependencies": {
     "@types/axios": "0.14.4",
     "@types/node": "20.10.5",
+    "glob": "8.1.0",
     "nodemon": "3.1.10",
+    "rimraf": "3.0.2",
     "ts-node": "10.9.2",
     "typescript": "5.9.2"
   },

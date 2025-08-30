@@ -2,6 +2,28 @@
 
 A command-line utility to list and review git commit changes, built with Node.js and TypeScript.
 
+### Prerequisites
+
+- Node.js (v16 or higher)
+- Ollama
+
+#### Ollama installation
+
+Using Docker:
+
+```bash
+docker run -d -v ollama:/root/.ollama -p 11434:11434 --name ollama ollama/ollama
+docker exec -it ollama ollama run codellama:7b
+```
+
+Using Homebrew:
+
+```bash
+brew install ollama
+brew services start ollama
+ollama run codellama:7b
+```
+
 ## Installation
 
 ### From npm (recommended)
@@ -80,8 +102,7 @@ The application uses environment variables for configuration. You can set these 
 OLLAMA_API_BASE_URL=http://localhost:11434
 
 # Model configurations
-OLLAMA_DEFAULT_MODEL=llama3
-OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+OLLAMA_DEFAULT_MODEL=codellama:7b
 
 # Generation parameters
 OLLAMA_DEFAULT_TEMPERATURE=0.7
@@ -92,7 +113,7 @@ OLLAMA_DEFAULT_MAX_TOKENS=2048
 OLLAMA_MIN_REQUEST_INTERVAL=500
 
 # Code review parameters
-CODE_FILE_EXTENSIONS=ts,js,py,rb
+CODE_FILE_EXTENSIONS=ts,js,py,go
 ```
 
 A `.env.example` file is provided as a template.
@@ -101,7 +122,8 @@ A `.env.example` file is provided as a template.
 
 ### Prerequisites
 
-- Node.js
+- Node.js (v16 or higher)
+- Ollama
 - Yarn
 
 ### Setup

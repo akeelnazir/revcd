@@ -313,7 +313,7 @@ OLLAMA_MIN_REQUEST_INTERVAL=500
 
 
 # Code review parameters
-CODE_FILE_EXTENSIONS=ts,js,py,rb
+CODE_FILE_EXTENSIONS=ts,js,py,go
 `;
       
       const envPath = path.join(process.cwd(), '.env');

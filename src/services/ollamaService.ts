@@ -1,5 +1,7 @@
-import { OLLAMA_CONFIG } from '../config';
 import axios from 'axios';
+import path from 'path';
+import { getLanguageFromExtension } from '../utils';
+import { OLLAMA_CONFIG } from '../config';
 
 export interface OllamaRequest {
   model: string;
@@ -154,6 +156,16 @@ class OllamaService {
     }
   }
 
+  private getFileLanguageFromPath(filePath: string): string {
+    if (!filePath) {
+      return 'Unknown';
+    }
+    const fileBaseName = path.basename(filePath);
+    const fileExtension = path.extname(fileBaseName).toLowerCase();
+    
+    return getLanguageFromExtension(fileExtension);
+  }
+
   async reviewCode(
     codeContent: string, 
     filePath?: string, 
@@ -195,7 +207,7 @@ class OllamaService {
       const sanitizedCode = this.sanitizeCodeContent(codeContent);
       
       const promptParts = [
-        `Please review the following code${filePath ? ` from file ${filePath}` : ''}:`,
+        `You are a code reviewer and an expert in ${this.getFileLanguageFromPath(filePath || '')} programming language. Please review the following code:`,
         `
 ${sanitizedCode}
 `,
