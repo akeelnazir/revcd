@@ -74,6 +74,7 @@ Once installed, you can use the `revcd` command from anywhere in your terminal.
   - `-a, --all`: Review all files, not just code files
   - `-h, --hunks-only`: Review only the added hunks/lines instead of entire files
   - `-s, --staged`: Review staged changes instead of unstaged changes (works with --hunks-only)
+  - `-l, --lines <range>`: Review only a specific line range in format L:n-m (e.g., L:10-20) (must be used with --file)
 
 - **Hunks**: Show only the changed parts (hunks) of unstaged/uncommitted files
   ```bash
@@ -146,9 +147,16 @@ yarn dev
   - `fileService.ts`: File operations
   - `gitService.ts`: Git operations for retrieving commit changes
   - `ollamaService.ts`: Ollama AI operations for code review
+  - `index.ts`: Service exports
 - `src/config/`: Configuration modules
   - `codeReview.config.ts`: Code review settings
   - `ollama.config.ts`: Ollama API configuration
+  - `index.ts`: Configuration exports
+- `src/utils/`: Utility modules
+  - `languageMap.ts`: Programming language detection and mapping
+  - `index.ts`: Utility exports
+- `src/tests/`: Test modules
+  - `languageMap.test.ts`: Tests for language mapping functionality
 
 
 ## License
