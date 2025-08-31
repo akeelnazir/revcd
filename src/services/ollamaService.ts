@@ -216,7 +216,9 @@ ${sanitizedCode}
 2. Performance issues
 3. Security concerns
 4. Code style and best practices
-5. Suggestions for improvement`
+5. Suggestions for improvement
+6. Suggest a commit message
+7. Suggest improvement, refactoring or optimization with a code example or a code snippet comparing the code under review with the suggested code`
       ];
       
       const prompt = promptParts.join('\n');

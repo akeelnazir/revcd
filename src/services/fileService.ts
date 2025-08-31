@@ -1,128 +1,80 @@
+import { dirname, join, normalize } from 'path';
 import { promises as fsPromises } from 'fs';
-import * as path from 'path';
 
 export class FileService {
-  public static async appendContentToFile(filePath: string, contentToAppend: string): Promise<void> {
-    if (!filePath) {
-      return Promise.reject(new Error('File path cannot be empty'));
+  public static async appendOrWriteFile(filePath: string, content: string, mode: 'append' | 'write'): Promise<void> {
+    if (!filePath || !content) {
+      return Promise.reject(new Error('File path and content cannot be empty'));
     }
     
-    if (filePath.includes('\0')) {
-      return Promise.reject(new Error(`Invalid file path containing null bytes: ${filePath}`));
-    }
-    
-    if (contentToAppend === undefined) {
-      return Promise.reject(new Error('Content to append cannot be undefined'));
+    const normalizedPath = normalize(filePath);
+    const directory = dirname(normalizedPath);
+
+    try {
+      await FileService.createDirectoryIfNotExists(directory);
+    } catch (dirError) {
+      console.error(`Failed to create directory for file ${normalizedPath}:`, dirError);
+      return Promise.reject(new Error(
+        `Cannot append or write to ${normalizedPath}: Failed to create directory ${directory}. ` +
+        `${dirError instanceof Error ? dirError.message : String(dirError)}`
+      ));
     }
 
     try {
-      const normalizedPath = path.normalize(filePath);
-      const directory = path.dirname(normalizedPath);
-      
-      try {
-        await FileService.createDirectoryIfNotExists(directory);
-      } catch (dirError) {
-        console.error(`Failed to create directory for file ${normalizedPath}:`, dirError);
-        return Promise.reject(new Error(
-          `Cannot append to ${normalizedPath}: Failed to create directory ${directory}. ` +
-          `${dirError instanceof Error ? dirError.message : String(dirError)}`
-        ));
+      const stat = await fsPromises.stat(normalizedPath);
+      if (stat.isDirectory()) {
+        throw new Error(`Path exists but is not a file: ${normalizedPath}`);
       }
-      
-      try {
-        await fsPromises.access(normalizedPath, fsPromises.constants.F_OK);
-        await fsPromises.appendFile(normalizedPath, contentToAppend, { encoding: 'utf8' });
-      } catch (error) {
-        await fsPromises.writeFile(normalizedPath, contentToAppend, { 
-          encoding: 'utf8',
-          mode: 0o644,
-          flag: 'w' 
-        });
+    } catch (statError) {
+      if ((statError as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw statError;
       }
-      
-      return Promise.resolve();
-    } catch (error) {
-      console.error(`Error appending to file at ${filePath}:`, error);
-      return Promise.reject(new Error(
-        `Failed to append to file at ${filePath}: ${error instanceof Error ? error.message : String(error)}. ` +
-        'Please check file permissions, disk space, and that the path is valid and accessible.'
-      ));
     }
+
+    const writeMethod = mode === 'append' ? fsPromises.appendFile : fsPromises.writeFile;
+    await writeMethod(normalizedPath, content, { encoding: 'utf8', mode: 0o644 });
+  }
+
+  public static async appendContentToFile(filePath: string, contentToAppend: string): Promise<void> {
+    return FileService.appendOrWriteFile(filePath, contentToAppend, 'append');
   }
 
   public static async writeContentToFile(filePath: string, fileContent: string): Promise<void> {
+    return FileService.appendOrWriteFile(filePath, fileContent, 'write');
+  }
+
+  private static async normalizeFilePath(filePath: string | null | undefined): Promise<string> {
     if (!filePath) {
-      return Promise.reject(new Error('File path cannot be empty'));
-    }
-    
-    if (filePath.includes('\0')) {
-      return Promise.reject(new Error(`Invalid file path containing null bytes: ${filePath}`));
-    }
-    
-    if (fileContent === undefined) {
-      return Promise.reject(new Error('File content cannot be undefined'));
+      throw new Error('Invalid file path');
     }
 
+    let normalizedPath = filePath;
+
     try {
-      const normalizedPath = path.normalize(filePath);
+      normalizedPath = normalize(filePath);
       if (normalizedPath !== filePath) {
         console.warn(`File path was normalized from ${filePath} to ${normalizedPath}`);
       }
-      
-      const directory = path.dirname(normalizedPath);
-      
-      try {
-        await FileService.createDirectoryIfNotExists(directory);
-      } catch (dirError) {
-        console.error(`Failed to create directory for file ${normalizedPath}:`, dirError);
-        return Promise.reject(new Error(
-          `Cannot write to ${normalizedPath}: Failed to create directory ${directory}. ` +
-          `${dirError instanceof Error ? dirError.message : String(dirError)}`
-        ));
-      }
-      
-      await fsPromises.writeFile(normalizedPath, fileContent, { 
-        encoding: 'utf8',
-        mode: 0o644,
-        flag: 'w' 
-      });
-      
-      return Promise.resolve();
     } catch (error) {
-      console.error(`Error writing file at ${filePath}:`, error);
-      return Promise.reject(new Error(
-        `Failed to write file at ${filePath}: ${error instanceof Error ? error.message : String(error)}. ` +
-        'Please check file permissions, disk space, and that the path is valid and accessible.'
-      ));
+      throw new Error(`Error normalizing file path: ${error instanceof Error ? error.message : String(error)}`);
     }
+
+    return normalizedPath;
   }
 
   private static async createDirectoryIfNotExists(directory: string): Promise<void> {
+    if (!directory || /\0/.test(directory) || /[<>:"|?*]/.test(directory)) {
+      throw new Error(`Invalid directory path: ${directory}`);
+    }
+  
     try {
-      if (!directory || directory.includes('\0') || /[<>:"|?*]/.test(directory)) {
-        throw new Error(`Invalid directory path: ${directory}`);
+      await fsPromises.mkdir(directory, { recursive: true });
+    } catch (err) {
+      const statError = err as NodeJS.ErrnoException;
+      if ((statError as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`Failed to create directory ${directory}: ${statError.message}`);
       }
-      
-      try {
-        const stats = await fsPromises.stat(directory);
-        if (!stats.isDirectory()) {
-          throw new Error(`Path exists but is not a directory: ${directory}`);
-        }
-        return;
-      } catch (statError) {
-        if ((statError as NodeJS.ErrnoException).code !== 'ENOENT') {
-          throw statError;
-        }
-        await fsPromises.mkdir(directory, { recursive: true });
-      }
-    } catch (error) {
-      console.error(`Error creating directory ${directory}:`, error);
-      const newError = new Error(
-        `Failed to create directory ${directory}: ${error instanceof Error ? error.message : String(error)}. ` +
-        'Please check directory permissions, disk space, and that the path is valid and not reserved by the system.'
-      );
-      (newError as Error & { cause: unknown }).cause = error;
-      throw newError;
+      throw err;
     }
   }
 
@@ -130,7 +82,7 @@ export class FileService {
     if (!reviewOutput || typeof reviewOutput !== 'string') {
       return Promise.reject(new Error('Review output must be a non-empty string'));
     }
-    
+
     if (!outputPath) {
       return Promise.reject(new Error('Output path cannot be empty'));
     }
@@ -142,8 +94,8 @@ export class FileService {
 Generated on: ${timestamp}
 
 ${reviewOutput}`;
-      const filePath = path.join(process.cwd(), outputPath);
-      
+      const filePath = join(process.cwd(), outputPath);
+
       try {
         await FileService.writeContentToFile(filePath, formattedContent);
         console.log(`Review output successfully saved to: ${filePath}`);
@@ -162,4 +114,49 @@ ${reviewOutput}`;
     }
   }
 
+  public static async getFileContentByLineRange(filePath: string, startLine: number, endLine: number): Promise<string | null> {
+    try {
+      if (!filePath) {
+        console.error('File path is required');
+        return null;
+      }
+
+      if (startLine < 1 || endLine < startLine) {
+        console.error(`Invalid line range: ${startLine}-${endLine}`);
+        return null;
+      }
+
+      const fileContent = await this.readFileContent(filePath);
+      if (!fileContent) {
+        console.error(`File not found: ${filePath}`);
+        return null;
+      }
+
+      const lines = fileContent.split('\n');
+
+      const start = Math.max(0, startLine - 1);
+      const end = Math.min(lines.length, endLine);
+
+      if (start >= lines.length) {
+        console.error(`Start line ${startLine} exceeds file length ${lines.length}`);
+        return null;
+      }
+
+      return lines.slice(start, end).join('\n');
+    } catch (error) {
+      console.error(`Error getting line range ${startLine}-${endLine} from ${filePath}:`, error);
+      return null;
+    }
+  }
+
+  private static async readFileContent(filePath: string): Promise<string | null> {
+    try {
+      const normalizedPath = await this.normalizeFilePath(filePath);
+      const content = await fsPromises.readFile(normalizedPath, { encoding: 'utf8' });
+      return content;
+    } catch (error) {
+      console.error(`Error reading file ${filePath}:`, error);
+      return null;
+    }
+  }
 }

@@ -2,7 +2,7 @@
 
 import { Command } from 'commander';
 import { GitService, ollamaService, FileService } from './services';
-import { CODE_REVIEW_CONFIG } from './config';
+import { CODE_REVIEW_CONFIG, OLLAMA_CONFIG } from './config';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -59,15 +59,26 @@ program
 program
   .command('review')
   .description('Send uncommitted code files to Ollama for code review')
-  .option('-m, --model <model>', 'specify the Ollama model to use for review')
+  .option('-m, --model <model>', 'specify the Ollama model to use for review (defaults to OLLAMA_DEFAULT_MODEL env var if not provided)')
   .option('-f, --file <file>', 'review only a specific file')
   .option('-a, --all', 'review all files, not just code files')
   .option('-h, --hunks-only', 'review only the added hunks/lines instead of entire files')
   .option('-s, --staged', 'review staged changes instead of unstaged changes (works with --hunks-only)')
+  .option('-l, --lines <range>', 'review only a specific line range in format L:n-m (e.g., L:10-20)')
   .action(async (options) => {
     const isGitRepo = await GitService.isGitRepository();
     if (!isGitRepo) {
       console.error('Not a git repository');
+      process.exit(1);
+    }
+    
+    if (options.lines && options.hunksOnly) {
+      console.error('Error: Cannot use both --lines and --hunks-only options together');
+      process.exit(1);
+    }
+    
+    if (options.lines && !options.file) {
+      console.error('Error: The --lines option requires a specific file (use with --file)');
       process.exit(1);
     }
 
@@ -88,7 +99,64 @@ program
     }
     
     if (options.file) {
-      if (options.hunksOnly) {
+      if (options.lines) {
+        const lineRangeMatch = options.lines.match(/^L:([0-9]+)-([0-9]+)$/i);
+        if (!lineRangeMatch) {
+          const errorMessage = `Invalid line range format: ${options.lines}. Expected format: L:n-m (e.g., L:10-20)`;
+          console.error(errorMessage);
+          appendToReviewOutput(errorMessage);
+          await FileService.writeReviewOutputToFile(reviewOutput);
+          process.exit(1);
+        }
+        
+        const startLine = parseInt(lineRangeMatch[1], 10);
+        const endLine = parseInt(lineRangeMatch[2], 10);
+        
+        
+        const lineRangeContent = await FileService.getFileContentByLineRange(options.file, startLine, endLine);
+        
+        if (!lineRangeContent) {
+          const errorMessage = `Failed to get content for lines ${startLine}-${endLine} in ${options.file}`;
+          console.error(errorMessage);
+          appendToReviewOutput(errorMessage);
+          await FileService.writeReviewOutputToFile(reviewOutput);
+          process.exit(1);
+        }
+        
+        const modelToUse = options.model || OLLAMA_CONFIG.DEFAULT_MODEL;
+        const codeHeader = `\n=== Code in ${options.file} (lines ${startLine}-${endLine}) ===`;
+        console.log(codeHeader);
+        appendToReviewOutput(codeHeader);
+        console.log('```');
+        appendToReviewOutput('```');
+        console.log(lineRangeContent);
+        appendToReviewOutput(lineRangeContent);
+        console.log('```\n');
+        appendToReviewOutput('```\n');
+        
+        const reviewingMessage = `Reviewing lines ${startLine}-${endLine} in ${options.file} using ${modelToUse}...`;
+        console.log(reviewingMessage);
+        appendToReviewOutput(reviewingMessage);
+        
+        const review = await ollamaService.reviewCode(lineRangeContent, options.file, modelToUse);
+        
+        if (review) {
+          const reviewHeader = `=== Code Review for ${options.file} (lines ${startLine}-${endLine}) ===`;
+          console.log(reviewHeader);
+          appendToReviewOutput(reviewHeader);
+          console.log(review);
+          appendToReviewOutput(review);
+          
+          await FileService.writeReviewOutputToFile(reviewOutput);
+        } else {
+          const errorMessage = 'Failed to get code review from Ollama service';
+          console.error(errorMessage);
+          appendToReviewOutput(errorMessage);
+          await FileService.writeReviewOutputToFile(reviewOutput);
+          process.exit(1);
+        }
+      }
+      else if (options.hunksOnly) {
         const addedLinesMap = await GitService.getAddedLines(options.file, options.staged, !options.all);
         
         if (!addedLinesMap || addedLinesMap.size === 0) {
@@ -108,7 +176,8 @@ program
           process.exit(0);
         }
         
-        const reviewingMessage = `Reviewing added lines in ${options.file}...`;
+        const modelToUse = options.model || OLLAMA_CONFIG.DEFAULT_MODEL;
+        const reviewingMessage = `Reviewing added lines in ${options.file} using ${modelToUse}...`;
         console.log(reviewingMessage);
         appendToReviewOutput(reviewingMessage);
         
@@ -122,7 +191,7 @@ program
         console.log('```\n');
         appendToReviewOutput('```\n');
         
-        const review = await ollamaService.reviewCode(addedLines, options.file, options.model);
+        const review = await ollamaService.reviewCode(addedLines, options.file, modelToUse);
         
         if (review) {
           const reviewHeader = `=== Code Review for added lines in ${options.file} ===`;
@@ -149,11 +218,12 @@ program
           process.exit(1);
         }
         
-        const reviewingMessage = `Reviewing ${options.file}...`;
+        const modelToUse = options.model || OLLAMA_CONFIG.DEFAULT_MODEL;
+        const reviewingMessage = `Reviewing ${options.file} using ${modelToUse}...`;
         console.log(reviewingMessage);
         appendToReviewOutput(reviewingMessage);
         
-        const review = await ollamaService.reviewCode(fileContent, options.file, options.model);
+        const review = await ollamaService.reviewCode(fileContent, options.file, modelToUse);
         
         if (review) {
           const reviewHeader = `\n=== Code Review for ${options.file} ===`;
@@ -195,7 +265,8 @@ program
       appendToReviewOutput(foundMessage);
       
       for (const [filePath, addedLines] of addedLinesMap.entries()) {
-        const reviewingMessage = `\nReviewing added lines in ${filePath}...`;
+        const modelToUse = options.model || OLLAMA_CONFIG.DEFAULT_MODEL;
+        const reviewingMessage = `\nReviewing added lines in ${filePath} using ${modelToUse}...`;
         console.log(reviewingMessage);
         appendToReviewOutput(reviewingMessage);
         
@@ -209,7 +280,7 @@ program
         console.log('```\n');
         appendToReviewOutput('```\n');
         
-        const review = await ollamaService.reviewCode(addedLines, filePath, options.model);
+        const review = await ollamaService.reviewCode(addedLines, filePath, modelToUse);
         
         if (review) {
           const reviewHeader = `=== Code Review for added lines in ${filePath} ===`;
@@ -252,11 +323,12 @@ program
       appendToReviewOutput(foundMessage);
       
       for (const [filePath, content] of uncommittedFiles.entries()) {
-        const reviewingMessage = `\nReviewing ${filePath}...`;
+        const modelToUse = options.model || OLLAMA_CONFIG.DEFAULT_MODEL;
+        const reviewingMessage = `\nReviewing ${filePath} using ${modelToUse} ...`;
         console.log(reviewingMessage);
         appendToReviewOutput(reviewingMessage);
         
-        const review = await ollamaService.reviewCode(content, filePath, options.model);
+        const review = await ollamaService.reviewCode(content, filePath, modelToUse);
         
         if (review) {
           const reviewHeader = `\n=== Code Review for ${filePath} ===`;
