@@ -1,6 +1,6 @@
 {
   "name": "revcd",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Review Code utility",
   "main": "dist/index.js",
   "bin": {
