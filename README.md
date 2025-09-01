@@ -1,6 +1,18 @@
 # REVCD (Review Code)
 
-A command-line utility to list and review git commit changes, built with Node.js and TypeScript.
+A command-line utility to list and review git commit changes, built with Node.js and TypeScript. This tool uses Ollama's AI models to provide instant feedback on your code changes, thus helping you improve your code quality. The generated feedback is displayed in the terminal and saved to a file named `REVIEW.md`.
+
+Choose your preferred coding model from [Ollama](https://ollama.com/search?q=coder) to use with REVCD. In our testing, we've used both `codellama:7b` and `qwen2.5-coder:3b`, but you can select any model you prefer. The `qwen2.5-coder:3b` model performs faster and requires less memory than `codellama:7b` as it belongs to a newer generation of models.
+
+## Features
+
+- **AI-Powered Code Reviews**: Get instant feedback on your code changes using Ollama's AI models
+- **Selective Review**: Choose to review specific files, line ranges, or only changed parts (hunks)
+- **Staged & Unstaged Changes**: Review both staged and unstaged changes in your git repository
+- **Language Support**: Built-in support for TypeScript, JavaScript, Python, Go, and configurable for other languages
+- **Simple CLI Interface**: Easy-to-use command-line interface with intuitive options
+- **Local AI Processing**: Uses Ollama for local AI processing, keeping your code private and secure
+- **Customizable**: Configure AI parameters and code review settings through environment variables
 
 ### Prerequisites
 
@@ -69,12 +81,12 @@ Once installed, you can use the `revcd` command from anywhere in your terminal.
   revcd review [options]
   ```
   Options:
-  - `-m, --model <model>`: Specify the Ollama model to use for review
   - `-f, --file <file>`: Review only a specific file
-  - `-a, --all`: Review all files, not just code files
+  - `-l, --lines <range>`: Review only a specific line range in format L:n-m (e.g., L:10-20) (must be used with --file)
   - `-h, --hunks-only`: Review only the added hunks/lines instead of entire files
   - `-s, --staged`: Review staged changes instead of unstaged changes (works with --hunks-only)
-  - `-l, --lines <range>`: Review only a specific line range in format L:n-m (e.g., L:10-20) (must be used with --file)
+  - `-a, --all`: Review all files, not just code files
+  - `-m, --model <model>`: Specify the Ollama model to use for review
 
 - **Hunks**: Show only the changed parts (hunks) of unstaged/uncommitted files
   ```bash
