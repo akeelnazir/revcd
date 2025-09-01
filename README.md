@@ -6,7 +6,15 @@ Choose your preferred coding model from [Ollama](https://ollama.com/search?q=cod
 
 ## Features
 
-- **AI-Powered Code Reviews**: Get instant feedback on your code changes using Ollama's AI models
+- **Commit Message Generation**: Automatically suggests descriptive commit messages based on your code changes
+- **AI-Powered Code Reviews**: Get instant feedback on your code changes using Ollama's AI models. Reviews include:
+  * Mermaid sequence diagram if the code is deemed complex enough
+  * Code quality assessment
+  * Performance optimization suggestions
+  * Security vulnerability detection
+  * Best practices recommendations
+  * Lists code smells
+  * Improved code alternatives
 - **Selective Review**: Choose to review specific files, line ranges, or only changed parts (hunks)
 - **Staged & Unstaged Changes**: Review both staged and unstaged changes in your git repository
 - **Language Support**: Built-in support for TypeScript, JavaScript, Python, Go, and configurable for other languages

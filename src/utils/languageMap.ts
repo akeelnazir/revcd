@@ -1,3 +1,5 @@
+import path from "path";
+
 export interface LanguageMapEntry {
   name: string;
   extensions: string[];
@@ -227,6 +229,16 @@ languageDefinitions.forEach(lang => {
     });
   }
 });
+
+export function getFileLanguageFromPath(filePath: string): string {
+    if (!filePath) {
+      return 'Unknown';
+    }
+    const fileBaseName = path.basename(filePath);
+    const fileExtension = path.extname(fileBaseName).toLowerCase();
+    
+    return getLanguageFromExtension(fileExtension);
+  }
 
 export function getLanguageFromExtension(extension: string): string {
   const normalizedExt = extension.startsWith('.') ? extension.toLowerCase() : `.${extension.toLowerCase()}`;

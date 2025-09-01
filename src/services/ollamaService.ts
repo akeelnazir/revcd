@@ -1,6 +1,5 @@
 import axios from 'axios';
-import path from 'path';
-import { getLanguageFromExtension } from '../utils';
+import { getFileLanguageFromPath } from '../utils';
 import { OLLAMA_CONFIG } from '../config';
 
 export interface OllamaRequest {
@@ -156,16 +155,6 @@ class OllamaService {
     }
   }
 
-  private getFileLanguageFromPath(filePath: string): string {
-    if (!filePath) {
-      return 'Unknown';
-    }
-    const fileBaseName = path.basename(filePath);
-    const fileExtension = path.extname(fileBaseName).toLowerCase();
-    
-    return getLanguageFromExtension(fileExtension);
-  }
-
   async reviewCode(
     codeContent: string, 
     filePath?: string, 
@@ -207,18 +196,29 @@ class OllamaService {
       const sanitizedCode = this.sanitizeCodeContent(codeContent);
       
       const promptParts = [
-        `You are a code reviewer and an expert in ${this.getFileLanguageFromPath(filePath || '')} programming language. Please review the following code:`,
+        `You are a code reviewer and an expert in ${getFileLanguageFromPath(filePath || '')} programming language. Please review the following code:`,
         `
 ${sanitizedCode}
 `,
-        `Provide a concise code review focusing on:
-1. Potential bugs or errors
-2. Performance issues
-3. Security concerns
-4. Code style and best practices
-5. Suggestions for improvement
-6. Suggest a commit message
-7. Suggest improvement, refactoring or optimization with a code example or a code snippet comparing the code under review with the suggested code`
+        `Provide a concise code review with the following structure:
+
+### Potential Issues
+- Identify bugs, logical errors, and edge cases not handled
+- Highlight code smells (duplicated code, complex methods, etc.)
+- Note performance bottlenecks or inefficient algorithms
+- Flag security vulnerabilities or unsafe practices
+
+### Code Quality
+- Evaluate adherence to best practices and coding standards
+- Assess readability, maintainability, and organization
+- Check for proper error handling and logging
+
+### Recommendations
+- Suggest specific improvements with clear rationale
+- Propose a descriptive commit message for the changes
+- Provide an optimized code example that addresses the identified issues`,
+`- If the code involves multiple components or complex interactions, provide a mermaid sequence diagram that visualizes the flow of execution and data between key functions/methods`,
+`- Always include specific line numbers (e.g., 'Line 42-45') when referencing code in your review. When providing code examples, display both original and improved versions with their corresponding line numbers in a side-by-side or before/after format to facilitate direct comparison. This precision is critical for the user to locate issues and implement suggested changes efficiently.`
       ];
       
       const prompt = promptParts.join('\n');

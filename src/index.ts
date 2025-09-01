@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { GitService, ollamaService, FileService } from './services';
-import { CODE_REVIEW_CONFIG, OLLAMA_CONFIG } from './config';
 import * as path from 'path';
 import * as fs from 'fs';
+import { GitService, ollamaService, FileService } from './services';
+import { CODE_REVIEW_CONFIG, OLLAMA_CONFIG } from './config';
+import { getFileLanguageFromPath } from './utils';
 
 const program = new Command();
 
@@ -127,16 +128,16 @@ program
         const codeHeader = `\n=== Code in ${options.file} (lines ${startLine}-${endLine}) ===`;
         console.log(codeHeader);
         appendToReviewOutput(codeHeader);
-        console.log('```');
-        appendToReviewOutput('```');
+        console.log('```'+getFileLanguageFromPath(options.file).toLowerCase());
+        appendToReviewOutput('```'+getFileLanguageFromPath(options.file).toLowerCase());
         console.log(lineRangeContent);
         appendToReviewOutput(lineRangeContent);
         console.log('```\n');
         appendToReviewOutput('```\n');
         
         const reviewingMessage = `Reviewing lines ${startLine}-${endLine} in ${options.file} using ${modelToUse}...`;
-        console.log(reviewingMessage);
-        appendToReviewOutput(reviewingMessage);
+        console.log(reviewingMessage + '\n');
+        appendToReviewOutput(reviewingMessage + '\n');
         
         const review = await ollamaService.reviewCode(lineRangeContent, options.file, modelToUse);
         
@@ -178,14 +179,14 @@ program
         
         const modelToUse = options.model || OLLAMA_CONFIG.DEFAULT_MODEL;
         const reviewingMessage = `Reviewing added lines in ${options.file} using ${modelToUse}...`;
-        console.log(reviewingMessage);
-        appendToReviewOutput(reviewingMessage);
+        console.log(reviewingMessage + '\n');
+        appendToReviewOutput(reviewingMessage + '\n');
         
         const codeHeader = `\n=== Added Code in ${options.file} ===`;
         console.log(codeHeader);
         appendToReviewOutput(codeHeader);
-        console.log('```');
-        appendToReviewOutput('```');
+        console.log('```'+getFileLanguageFromPath(options.file).toLowerCase());
+        appendToReviewOutput('```'+getFileLanguageFromPath(options.file).toLowerCase());
         console.log(addedLines);
         appendToReviewOutput(addedLines);
         console.log('```\n');
@@ -220,8 +221,8 @@ program
         
         const modelToUse = options.model || OLLAMA_CONFIG.DEFAULT_MODEL;
         const reviewingMessage = `Reviewing ${options.file} using ${modelToUse}...`;
-        console.log(reviewingMessage);
-        appendToReviewOutput(reviewingMessage);
+        console.log(reviewingMessage + '\n');
+        appendToReviewOutput(reviewingMessage + '\n');
         
         const review = await ollamaService.reviewCode(fileContent, options.file, modelToUse);
         
@@ -267,8 +268,8 @@ program
       for (const [filePath, addedLines] of addedLinesMap.entries()) {
         const modelToUse = options.model || OLLAMA_CONFIG.DEFAULT_MODEL;
         const reviewingMessage = `\nReviewing added lines in ${filePath} using ${modelToUse}...`;
-        console.log(reviewingMessage);
-        appendToReviewOutput(reviewingMessage);
+        console.log(reviewingMessage + '\n');
+        appendToReviewOutput(reviewingMessage + '\n');
         
         const codeHeader = `\n=== Added Code in ${filePath} ===`;
         console.log(codeHeader);
@@ -325,8 +326,8 @@ program
       for (const [filePath, content] of uncommittedFiles.entries()) {
         const modelToUse = options.model || OLLAMA_CONFIG.DEFAULT_MODEL;
         const reviewingMessage = `\nReviewing ${filePath} using ${modelToUse} ...`;
-        console.log(reviewingMessage);
-        appendToReviewOutput(reviewingMessage);
+        console.log(reviewingMessage + '\n');
+        appendToReviewOutput(reviewingMessage + '\n');
         
         const review = await ollamaService.reviewCode(content, filePath, modelToUse);
         
