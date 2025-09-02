@@ -64,6 +64,7 @@ class OllamaService {
   private lastRequestTime: number = 0;
   private minRequestInterval: number = 500;
   private requestTimeout: number = 60000;
+  private serverAvailable: boolean = false;
 
   constructor(config?: OllamaServiceConfig) {
     this.baseUrl = config?.baseUrl || OLLAMA_CONFIG.API_BASE_URL;
@@ -74,6 +75,21 @@ class OllamaService {
     this.defaultTopP = config?.defaultTopP || parseFloat(OLLAMA_CONFIG.DEFAULT_TOP_P);
     this.minRequestInterval = OLLAMA_CONFIG.MIN_REQUEST_INTERVAL || 500;
     this.requestTimeout = OLLAMA_CONFIG.REQUEST_TIMEOUT || 60000;
+    this.checkServerAvailability();
+  }
+  
+  private async checkServerAvailability(): Promise<void> {
+    try {
+      this.serverAvailable = await this.isServerRunning();
+      if (!this.serverAvailable) {
+        console.warn('Ollama server is not running or not accessible at', this.baseUrl);
+      } else {
+        console.log('Successfully connected to Ollama server at', this.baseUrl);
+      }
+    } catch (error) {
+      this.serverAvailable = false;
+      console.error('Error checking Ollama server availability:', error);
+    }
   }
   
   private generateCacheKey(codeContent: string, model: string, options?: any): string {
@@ -152,6 +168,18 @@ class OllamaService {
       onResponseText(data.response);
     } else if (data.done === true) {
       console.warn('Received completion signal but no valid response content');
+    }
+  }
+
+  private async isServerRunning(): Promise<boolean> {
+    try {
+      const response = await axios.get(`${this.baseUrl}/api/version`, {
+        timeout: 2000 // Short timeout for quick check
+      });
+      return response.status === 200;
+    } catch (error) {
+      console.error('Ollama server check failed:', error instanceof Error ? error.message : String(error));
+      return false;
     }
   }
 
@@ -250,6 +278,14 @@ ${sanitizedCode}
       await this.applyRateLimiting();
       
       try {
+        if (!this.serverAvailable) {
+          this.serverAvailable = await this.isServerRunning();
+          if (!this.serverAvailable) {
+            console.error('Ollama server is not running or not accessible at', this.baseUrl);
+            return null;
+          }
+        }
+        
         const axiosResponse = await axios.post(
           `${this.baseUrl}/api/generate`,
           requestBody,

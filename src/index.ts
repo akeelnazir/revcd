@@ -9,10 +9,17 @@ import { getFileLanguageFromPath } from './utils';
 
 const program = new Command();
 
+let packageJsonPath = path.join(__dirname, '..', 'package.json');
+if (!fs.existsSync(packageJsonPath)) {
+  packageJsonPath = path.join(__dirname, '..', '..', 'package.json');
+}
+
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+
 program
   .name('rcd')
   .description('Review Code - A command-line utility to review code changes')
-  .version('1.0.0');
+  .version(packageJson.version);
 
 program
   .command('hunks')
