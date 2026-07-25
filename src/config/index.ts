@@ -1,2 +1,2 @@
 export * from './codeReview.config';
-export * from './ollama.config';
+export * from './llm.config';

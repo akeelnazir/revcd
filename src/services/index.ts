@@ -1,3 +1,3 @@
 export * from './gitService';
-export * from './ollamaService';
+export * from './llmService';
 export * from './fileService';
