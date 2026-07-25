@@ -150,9 +150,7 @@ program
 
         if (review) {
           const reviewHeader = `=== Code Review for ${options.file} (lines ${startLine}-${endLine}) ===`;
-          console.log(reviewHeader);
           appendToReviewOutput(reviewHeader);
-          console.log(review);
           appendToReviewOutput(review);
 
           await FileService.writeReviewOutputToFile(reviewOutput);
@@ -203,9 +201,7 @@ program
 
         if (review) {
           const reviewHeader = `=== Code Review for added lines in ${options.file} ===`;
-          console.log(reviewHeader);
           appendToReviewOutput(reviewHeader);
-          console.log(review);
           appendToReviewOutput(review);
 
           await FileService.writeReviewOutputToFile(reviewOutput);
@@ -235,9 +231,7 @@ program
 
         if (review) {
           const reviewHeader = `\n=== Code Review for ${options.file} ===`;
-          console.log(reviewHeader);
           appendToReviewOutput(reviewHeader);
-          console.log(review);
           appendToReviewOutput(review);
 
           await FileService.writeReviewOutputToFile(reviewOutput);
@@ -292,12 +286,10 @@ program
 
         if (review) {
           const reviewHeader = `=== Code Review for added lines in ${filePath} ===`;
-          console.log(reviewHeader);
           appendToReviewOutput(reviewHeader);
-          console.log(review);
           appendToReviewOutput(review);
           const separator = '\n' + '-'.repeat(80);
-          console.log(separator);
+          appendToReviewOutput(separator);
           appendToReviewOutput(separator);
         } else {
           const errorMessage = `Failed to get code review for ${filePath}`;
@@ -340,12 +332,10 @@ program
 
         if (review) {
           const reviewHeader = `\n=== Code Review for ${filePath} ===`;
-          console.log(reviewHeader);
           appendToReviewOutput(reviewHeader);
-          console.log(review);
           appendToReviewOutput(review);
           const separator = '\n' + '-'.repeat(80);
-          console.log(separator);
+          appendToReviewOutput(separator);
           appendToReviewOutput(separator);
         } else {
           const errorMessage = `Failed to get code review for ${filePath}`;
@@ -372,8 +362,8 @@ program
       const llmConfig = `
 # LLM API Configuration (supports any OpenAI-compatible endpoint)
 
-# API base URL (e.g., http://localhost:11434 for Ollama, https://api.openai.com/v1 for OpenAI)
-LLM_API_BASE_URL=http://localhost:11434
+# API base URL (e.g., http://localhost:11434/v1 for Ollama, https://api.openai.com/v1 for OpenAI)
+LLM_API_BASE_URL=http://localhost:11434/v1
 
 # API key (required for some providers like OpenAI, optional for local providers like Ollama)
 LLM_API_KEY=
@@ -391,7 +381,7 @@ LLM_REQUEST_TIMEOUT=60000
 LLM_MIN_REQUEST_INTERVAL=500
 
 # Code review parameters
-CODE_FILE_EXTENSIONS=ts,js,py,go
+CODE_FILE_EXTENSIONS=ts,tsx,js,jsx,py,go
 `;
 
       const envPath = path.join(process.cwd(), '.env');
