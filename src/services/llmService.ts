@@ -200,32 +200,40 @@ class LLMService {
       const sanitizedCode = this.sanitizeCodeContent(codeContent);
 
       const promptParts = [
-        `You are a code reviewer and an expert in ${getFileLanguageFromPath(filePath || '')} programming language. Please review the following code:`,
-        `
-${sanitizedCode}
-`,
-        `Provide a concise code review with the following structure:
+        `You are a code reviewer and an expert in ${getFileLanguageFromPath(filePath || '')} programming language. Please review the code provided by the user:`,
+        `Provide a detailed code review with the following structure:
+
+### Review Status
+At the beginning of your review, provide a status indicator:
+- **FAILED**: Critical bugs, security vulnerabilities, or logic errors that must be resolved.
+- **SUCCEEDED**: Production-ready with no critical issues.
+- **OPTIONAL**: Functionally correct, with non-critical recommendations for improvement.
 
 ### Potential Issues
-- Identify bugs, logical errors, and edge cases not handled
-- Highlight code smells (duplicated code, complex methods, etc.)
-- Note performance bottlenecks or inefficient algorithms
-- Flag security vulnerabilities or unsafe practices
+- Identify bugs, logic errors, and unhandled edge cases.
+- Call out code smells (duplication, overly complex methods, etc.).
+- Flag performance bottlenecks or inefficient algorithms.
+- Highlight security vulnerabilities and unsafe practices.
 
 ### Code Quality
-- Evaluate adherence to best practices and coding standards
-- Assess readability, maintainability, and organization
-- Check for proper error handling and logging
+- Assess alignment with best practices and coding standards.
+- Evaluate readability, maintainability, and structure.
+- Review error handling and logging completeness.
 
 ### Recommendations
-- Suggest specific improvements with clear rationale
-- Propose a descriptive commit message for the changes
-- Provide an optimized code example that addresses the identified issues`,
-        `- If the code involves multiple components or complex interactions, provide a mermaid sequence diagram that visualizes the flow of execution and data between key functions/methods`,
-        `- Always include specific line numbers (e.g., 'Line 42-45') when referencing code in your review. When providing code examples, display both original and improved versions with their corresponding line numbers in a side-by-side or before/after format to facilitate direct comparison. This precision is critical for the user to locate issues and implement suggested changes efficiently.`
+- Propose specific improvements with clear reasoning.
+- Suggest a descriptive commit message for the changes.
+- For each recommendation, present a side-by-side comparison using the format below to ease identification and implementation:`,
+        `Line X-Y (original):
+original code
+
+Line X-Y (improved):
+improved code`,
+        `- If the code spans multiple components or complex interactions, include a Mermaid sequence diagram that visualizes the execution flow and data exchange between key functions or methods.`,
+        `- Always reference precise line numbers (e.g., "Line 42-45") when discussing code. Present both original and improved code with line numbers in side-by-side code blocks to streamline finding issues and applying fixes.`
       ];
 
-      const prompt = promptParts.join('\n');
+      const systemPrompt = promptParts.join('\n');
 
       await this.applyRateLimiting();
 
@@ -242,8 +250,12 @@ ${sanitizedCode}
           model: modelToUse,
           messages: [
             {
+              role: 'system',
+              content: systemPrompt
+            },
+            {
               role: 'user',
-              content: prompt
+              content: sanitizedCode
             }
           ],
           temperature: options?.temperature ?? this.defaultTemperature,
