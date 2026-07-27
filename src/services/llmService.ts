@@ -23,7 +23,6 @@ export interface LLMServiceConfig {
   cacheTTL?: number;
   defaultTemperature?: number;
   defaultMaxTokens?: number;
-  defaultTopP?: number;
   minRequestInterval?: number;
   requestTimeout?: number;
 }
@@ -36,7 +35,6 @@ class LLMService {
   private cacheTTL: number = 1000 * 60 * 30;
   private defaultTemperature: number;
   private defaultMaxTokens: number;
-  private defaultTopP: number;
   private lastRequestTime: number = 0;
   private minRequestInterval: number = 500;
   private requestTimeout: number = 60000;
@@ -57,7 +55,6 @@ class LLMService {
     this.cacheTTL = config?.cacheTTL || 1000 * 60 * 30;
     this.defaultTemperature = config?.defaultTemperature || parseFloat(LLM_CONFIG.DEFAULT_TEMPERATURE);
     this.defaultMaxTokens = config?.defaultMaxTokens || parseInt(LLM_CONFIG.DEFAULT_MAX_TOKENS);
-    this.defaultTopP = config?.defaultTopP || parseFloat(LLM_CONFIG.DEFAULT_TOP_P);
     this.minRequestInterval = LLM_CONFIG.MIN_REQUEST_INTERVAL || 500;
     this.requestTimeout = LLM_CONFIG.REQUEST_TIMEOUT || 60000;
     this.checkServerAvailability();
@@ -165,7 +162,6 @@ class LLMService {
     options?: {
       temperature?: number;
       maxTokens?: number;
-      topP?: number;
       timeout?: number;
       useCache?: boolean;
     }
@@ -260,7 +256,6 @@ improved code`,
           ],
           temperature: options?.temperature ?? this.defaultTemperature,
           max_tokens: options?.maxTokens ?? this.defaultMaxTokens,
-          top_p: options?.topP ?? this.defaultTopP,
           stream: false
         });
 
